@@ -44,6 +44,8 @@
 
 #include "CLG_log.h"
 
+#include "admmpd_api.h"
+
 #include "MEM_guardedalloc.h"
 
 /* types */
@@ -78,6 +80,7 @@
 #include "DEG_depsgraph_query.h"
 
 #include "PIL_time.h"
+
 
 static CLG_LogRef LOG = {"bke.softbody"};
 
@@ -940,6 +943,11 @@ static void free_softbody_intern(SoftBody *sb)
     sb->totpoint = sb->totspring = 0;
     sb->bpoint = NULL;
     sb->bspring = NULL;
+
+    if (sb->admmpd_data) {
+      admmpd_cleanup(sb->admmpd_data);
+      sb->admmpd_data = NULL;
+    }
 
     free_scratch(sb);
     free_softbody_baked(sb);
@@ -3160,6 +3168,9 @@ SoftBody *sbNew(Scene *scene)
     sb->effector_weights = BKE_effector_add_weights(NULL);
   }
 
+  // ADMMPD_Data created in sbObjectStep
+  sb->admmpd_data = NULL;
+
   sb->last_frame = MINFRAME - 1;
 
   return sb;
@@ -3585,6 +3596,12 @@ void sbObjectStep(struct Depsgraph *depsgraph,
 
     softbody_update_positions(ob, sb, vertexCos, numVerts);
     softbody_reset(ob, sb, vertexCos, numVerts);
+
+    if (sb->admmpd_data)
+      admmpd_cleanup(sb->admmpd_data);
+
+    BodyPoint *bp = sb->bpoint;
+    sb->admmpd_data = admmpd_init(bp, numVerts);
   }
 
   /* still no points? go away */
@@ -3596,6 +3613,10 @@ void sbObjectStep(struct Depsgraph *depsgraph,
 
     /* first frame, no simulation to do, just set the positions */
     softbody_update_positions(ob, sb, vertexCos, numVerts);
+
+    // sb->bpoint is NULL here :/
+    //if (sb->admmpd_data)
+    //  bodypoint_to_admmpd(sb->admmpd_data,bp,numVerts)
 
     BKE_ptcache_validate(cache, framenr);
     cache->flag &= ~PTCACHE_REDO_NEEDED;
@@ -3656,7 +3677,16 @@ void sbObjectStep(struct Depsgraph *depsgraph,
   dtime = framedelta * timescale;
 
   /* do simulation */
-  softbody_step(depsgraph, scene, ob, sb, dtime);
+//  softbody_step(depsgraph, scene, ob, sb, dtime);
+
+  {
+    if (sb->admmpd_data)
+    {
+      admmpd_solve(sb->admmpd_data);
+      BodyPoint *bp = sb->bpoint;
+      admmpd_to_bodypoint(sb->admmpd_data,bp,numVerts);
+    }
+  }
 
   softbody_to_object(ob, vertexCos, numVerts, 0);
 

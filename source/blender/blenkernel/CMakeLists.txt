@@ -44,6 +44,7 @@ set(INC
   ../../../intern/iksolver/extern
   ../../../intern/atomic
   ../../../intern/clog
+  ../../../intern/softbody
   ../../../intern/libmv
   ../../../intern/mantaflow/extern
   ../../../intern/memutil
@@ -421,6 +422,7 @@ set(LIB
   bf_ikplugin
   bf_imbuf
   bf_intern_clog
+  bf_intern_admmpd
   bf_intern_ghost
   bf_intern_guardedalloc
   bf_intern_libmv  # Uses stub when disabled.
