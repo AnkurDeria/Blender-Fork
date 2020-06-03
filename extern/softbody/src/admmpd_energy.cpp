@@ -8,7 +8,7 @@ using namespace Eigen;
 
 Lame::Lame() : m_model(0)
 {
-	set_from_youngs_poisson(10000000,0.299);
+	set_from_youngs_poisson(10000000,0.399);
 }
 
 void Lame::set_from_youngs_poisson(double youngs, double poisson)

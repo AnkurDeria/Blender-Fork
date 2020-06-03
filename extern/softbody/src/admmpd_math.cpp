@@ -6,26 +6,26 @@ namespace admmpd {
 namespace barycoords {
 
     Eigen::Matrix<double,4,1> point_tet(
-        const Eigen::Matrix<double,3,1> &p,
-        const Eigen::Matrix<double,3,1> &a,
-        const Eigen::Matrix<double,3,1> &b,
-        const Eigen::Matrix<double,3,1> &c,
-        const Eigen::Matrix<double,3,1> &d)
+        const Eigen::Vector3d &p,
+        const Eigen::Vector3d &a,
+        const Eigen::Vector3d &b,
+        const Eigen::Vector3d &c,
+        const Eigen::Vector3d &d)
     {
 		auto scalar_triple_product = [](
-			const Eigen::Matrix<double,3,1> &u,
-			const Eigen::Matrix<double,3,1> &v,
-			const Eigen::Matrix<double,3,1> &w )
+			const Eigen::Vector3d &u,
+			const Eigen::Vector3d &v,
+			const Eigen::Vector3d &w )
 		{
 			return u.dot(v.cross(w));
 		};
-		Eigen::Matrix<double,3,1> ap = p - a;
-		Eigen::Matrix<double,3,1> bp = p - b;
-		Eigen::Matrix<double,3,1> ab = b - a;
-		Eigen::Matrix<double,3,1> ac = c - a;
-		Eigen::Matrix<double,3,1> ad = d - a;
-		Eigen::Matrix<double,3,1> bc = c - b;
-		Eigen::Matrix<double,3,1> bd = d - b;
+		Eigen::Vector3d ap = p - a;
+		Eigen::Vector3d bp = p - b;
+		Eigen::Vector3d ab = b - a;
+		Eigen::Vector3d ac = c - a;
+		Eigen::Vector3d ad = d - a;
+		Eigen::Vector3d bc = c - b;
+		Eigen::Vector3d bd = d - b;
 		double va6 = scalar_triple_product(bp, bd, bc);
 		double vb6 = scalar_triple_product(ap, ac, ad);
 		double vc6 = scalar_triple_product(ap, ad, ab);
@@ -37,11 +37,11 @@ namespace barycoords {
 	// Checks that it's on the "correct" side of the normal
 	// for each face of the tet. Assumes winding points inward.
 	bool point_in_tet(
-		const Eigen::Matrix<double,3,1> &p,
-		const Eigen::Matrix<double,3,1> &a,
-		const Eigen::Matrix<double,3,1> &b,
-		const Eigen::Matrix<double,3,1> &c,
-		const Eigen::Matrix<double,3,1> &d)
+		const Eigen::Vector3d &p,
+		const Eigen::Vector3d &a,
+		const Eigen::Vector3d &b,
+		const Eigen::Vector3d &c,
+		const Eigen::Vector3d &d)
 	{
 		using namespace Eigen;
 		auto check_face = [](

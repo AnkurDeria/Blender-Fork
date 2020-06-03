@@ -3,6 +3,7 @@
 
 #include "admmpd_lattice.h"
 #include "admmpd_math.h"
+#include <iostream>
 
 //#include "vdb.h"
 

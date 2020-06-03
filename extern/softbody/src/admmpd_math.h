@@ -9,19 +9,19 @@
 namespace admmpd {
 namespace barycoords {
 
-Eigen::Matrix<double,4,1> point_tet(
-    const Eigen::Matrix<double,3,1> &p,
-    const Eigen::Matrix<double,3,1> &a,
-    const Eigen::Matrix<double,3,1> &b,
-    const Eigen::Matrix<double,3,1> &c,
-    const Eigen::Matrix<double,3,1> &d);
+Eigen::Vector4d point_tet(
+    const Eigen::Vector3d &p,
+    const Eigen::Vector3d &a,
+    const Eigen::Vector3d &b,
+    const Eigen::Vector3d &c,
+    const Eigen::Vector3d &d);
 
 bool point_in_tet(
-    const Eigen::Matrix<double,3,1> &p,
-    const Eigen::Matrix<double,3,1> &a,
-    const Eigen::Matrix<double,3,1> &b,
-    const Eigen::Matrix<double,3,1> &c,
-    const Eigen::Matrix<double,3,1> &d);
+    const Eigen::Vector3d &p,
+    const Eigen::Vector3d &a,
+    const Eigen::Vector3d &b,
+    const Eigen::Vector3d &c,
+    const Eigen::Vector3d &d);
 
 } // namespace barycoords
 

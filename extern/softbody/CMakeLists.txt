@@ -35,6 +35,8 @@ set(SRC
   src/admmpd_lattice.cpp
   src/admmpd_solver.h
   src/admmpd_solver.cpp
+  src/admmpd_collision.h
+  src/admmpd_collision.cpp
 )
 
 set(LIB

@@ -128,7 +128,7 @@ void admmpd_to_bodypoint(
     bpi.pos[0] = xi[0];
     bpi.pos[1] = xi[1];
     bpi.pos[2] = xi[2];
-    bpi.vec[0] = vi[0];
+    bpi.vec[0] = vi[0]; // vec is velocity?
     bpi.vec[1] = vi[1];
     bpi.vec[2] = vi[2];
   }
