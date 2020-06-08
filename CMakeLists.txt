@@ -220,6 +220,8 @@ mark_as_advanced(WITH_HEADLESS)
 
 option(WITH_QUADRIFLOW    "Build with quadriflow remesher support" ON)
 
+option(WITH_TETGEN    "Build with tetgen remesher support" ON)
+
 option(WITH_AUDASPACE    "Build with blenders audio library (only disable if you know what you're doing!)" ON)
 option(WITH_SYSTEM_AUDASPACE "Build with external audaspace library installed on the system (only enable if you know what you're doing!)" OFF)
 mark_as_advanced(WITH_AUDASPACE)
@@ -646,6 +648,7 @@ set_and_warn_dependency(WITH_BOOST WITH_INTERNATIONAL  OFF)
 set_and_warn_dependency(WITH_BOOST WITH_OPENVDB        OFF)
 set_and_warn_dependency(WITH_BOOST WITH_OPENCOLORIO    OFF)
 set_and_warn_dependency(WITH_BOOST WITH_QUADRIFLOW     OFF)
+set_and_warn_dependency(WITH_BOOST WITH_TETGEN         ON)
 set_and_warn_dependency(WITH_BOOST WITH_USD            OFF)
 set_and_warn_dependency(WITH_BOOST WITH_ALEMBIC        OFF)
 
@@ -1732,6 +1735,7 @@ if(FIRST_RUN)
   info_cfg_option(WITH_OPENVDB)
   info_cfg_option(WITH_ALEMBIC)
   info_cfg_option(WITH_QUADRIFLOW)
+  info_cfg_option(WITH_TETGEN)
   info_cfg_option(WITH_USD)
   info_cfg_option(WITH_TBB)
 

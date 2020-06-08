@@ -77,6 +77,10 @@ if(WITH_QUADRIFLOW)
   add_subdirectory(quadriflow)
 endif()
 
+if(WITH_TETGEN)
+  add_subdirectory(tetgen)
+endif()
+
 if(UNIX AND NOT APPLE)
   add_subdirectory(libc_compat)
 endif()

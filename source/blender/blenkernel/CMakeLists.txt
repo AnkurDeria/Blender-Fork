@@ -675,6 +675,16 @@ if(WITH_QUADRIFLOW)
   add_definitions(-DWITH_QUADRIFLOW)
 endif()
 
+if(WITH_TETGEN)
+  list(APPEND INC
+     ../../../intern/tetgen
+  )
+  list(APPEND LIB
+     bf_intern_tetgen
+  )
+  add_definitions(-DWITH_TETGEN)
+endif()
+
 if(WITH_XR_OPENXR)
   add_definitions(-DWITH_XR_OPENXR)
 endif()

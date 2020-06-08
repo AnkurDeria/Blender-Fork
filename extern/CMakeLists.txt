@@ -107,6 +107,10 @@ if(WITH_QUADRIFLOW)
   add_subdirectory(quadriflow)
 endif()
 
+if(WITH_TETGEN)
+  add_subdirectory(tetgen)
+endif()
+
 if(WITH_MOD_FLUID)
   add_subdirectory(mantaflow)
 endif()
