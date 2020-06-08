@@ -18,7 +18,6 @@ typedef struct TetGenRemeshData {
   int out_totverts;
   int out_totfacets;
   int out_tottets;
-
 } TetGenRemeshData;
 
 void init_tetgenremeshdata(TetGenRemeshData *data);

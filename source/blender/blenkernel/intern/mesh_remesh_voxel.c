@@ -332,6 +332,11 @@ static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh)
     }
     BKE_mesh_calc_edges(mesh, false, false);
     BKE_mesh_calc_normals(mesh);
+
+//    mesh->tottet = tg.out_tottets;
+//    mesh->mtet = (unsigned int *)MEM_malloc_arrayN(tg.out_tottets*4, sizeof(unsigned int), "remesh_output_tets");
+//    memcpy(mesh->mtet,tg.out_tets,tg.out_tottets*4*sizeof(unsigned int));
+
   } // end success
 
   if (tg.out_verts)
@@ -346,6 +351,19 @@ static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh)
   return mesh;
 }
 #endif
+
+struct Mesh *BKE_mesh_remesh_tetgen_to_mesh_nomain(struct Mesh *mesh)
+{
+  #ifdef WITH_TETGEN
+  Mesh *new_mesh = BKE_mesh_remesh_tetgen(mesh);  
+  return new_mesh;
+  #else
+  UNUSED_VARS(mesh,
+              tets,
+              tottets);
+  #endif
+  return NULL;
+}
 
 Mesh *BKE_mesh_remesh_quadriflow_to_mesh_nomain(Mesh *mesh,
                                                 int target_faces,
