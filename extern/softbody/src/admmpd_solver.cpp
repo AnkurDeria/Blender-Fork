@@ -237,10 +237,9 @@ void Solver::compute_matrices(
 		data->v.setZero();
 	}
 	if (data->m.rows() != nx)
-	{ // TODO get from BodyPoint
+	{ // TODO get from input
 		data->m.resize(nx);
 		data->m.setOnes();
-		data->m *= 0.01;
 	}
 
 	// Add per-element energies to data
