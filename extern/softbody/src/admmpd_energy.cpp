@@ -2,6 +2,7 @@
 
 
 #include "admmpd_energy.h"
+#include <iostream>
 
 namespace admmpd {
 using namespace Eigen;

@@ -265,7 +265,9 @@ static Mesh *BKE_mesh_remesh_quadriflow(Mesh *input_mesh,
 #endif
 
 #ifdef WITH_TETGEN
-static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh)
+static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh,
+                                  unsigned int **tets,
+                                  int *numtets)
 {
   // Ensure that the triangulated mesh data is up to data
   BKE_mesh_runtime_looptri_recalc(input_mesh);
@@ -310,6 +312,19 @@ static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh)
   MEM_freeN(faces);
   MEM_freeN(verttri);
 
+{
+    if (tg.out_verts)
+    MEM_freeN(tg.out_verts);
+
+  if (tg.out_facets)
+    MEM_freeN(tg.out_facets);
+
+  if (tg.out_tets)
+    MEM_freeN(tg.out_tets);
+    
+  return NULL;
+}
+
   Mesh *mesh = NULL;
   if (success)
   {
@@ -333,9 +348,10 @@ static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh)
     BKE_mesh_calc_edges(mesh, false, false);
     BKE_mesh_calc_normals(mesh);
 
-//    mesh->tottet = tg.out_tottets;
-//    mesh->mtet = (unsigned int *)MEM_malloc_arrayN(tg.out_tottets*4, sizeof(unsigned int), "remesh_output_tets");
-//    memcpy(mesh->mtet,tg.out_tets,tg.out_tottets*4*sizeof(unsigned int));
+    *numtets = tg.out_tottets;
+    //*tets = (unsigned int *)MEM_malloc_arrayN(tg.out_tottets*4, sizeof(unsigned int), "remesh_output_tets");
+    *tets = (unsigned int *)malloc(tg.out_tottets*4*sizeof(unsigned int));
+    memcpy(*tets,tg.out_tets,tg.out_tottets*4*sizeof(unsigned int));
 
   } // end success
 
@@ -352,11 +368,12 @@ static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh)
 }
 #endif
 
-struct Mesh *BKE_mesh_remesh_tetgen_to_mesh_nomain(struct Mesh *mesh)
+struct Mesh *BKE_mesh_remesh_tetgen_to_mesh_nomain(struct Mesh *mesh,
+                                                unsigned int **tets,
+                                                int *numtets)
 {
   #ifdef WITH_TETGEN
-  Mesh *new_mesh = BKE_mesh_remesh_tetgen(mesh);  
-  return new_mesh;
+  return BKE_mesh_remesh_tetgen(mesh,tets,numtets);  
   #else
   UNUSED_VARS(mesh,
               tets,

@@ -304,7 +304,7 @@ typedef struct SoftBody_Shared {
   struct ListBase ptcaches;
 } SoftBody_Shared;
 
-typedef struct ADMMPD_Data ADMMPD_Data;
+typedef struct ADMMPDInterfaceData ADMMPDInterfaceData;
 typedef struct SoftBody {
   /* dynamic data */
   int totpoint, totspring;
@@ -313,7 +313,7 @@ typedef struct SoftBody {
   /** Not saved in file. */
   struct BodySpring *bspring;
 
-  struct ADMMPD_Data *admmpd_data;
+  struct ADMMPDInterfaceData *admmpd;
 
   char _pad;
   char msg_lock;

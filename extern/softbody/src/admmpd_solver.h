@@ -11,24 +11,24 @@
 
 namespace admmpd {
 
-struct ADMMPD_Options {
+struct Options {
     double timestep_s;
     int max_admm_iters;
     int max_cg_iters;
     double mult_k; // stiffness multiplier for constraints
     double min_res; // min residual for CG solver
     Eigen::Vector3d grav;
-    ADMMPD_Options() :
+    Options() :
         timestep_s(1.0/100.0), // TODO: Figure out delta time from blender api
         max_admm_iters(20),
         max_cg_iters(10),
-        mult_k(3.0),
+        mult_k(1.0),
         min_res(1e-4),
         grav(0,0,-9.8)
         {}
 };
 
-struct ADMMPD_Data {
+struct Data {
     // Input:
     Eigen::MatrixXi tets; // elements t x 4
     Eigen::MatrixXd x; // vertices, n x 3
@@ -65,42 +65,42 @@ public:
     bool init(
         const Eigen::MatrixXd &V, // vertices
         const Eigen::MatrixXi &T, // tets
-        const ADMMPD_Options *options,
-        ADMMPD_Data *data);
+        const Options *options,
+        Data *data);
 
     // Solve a single time step.
     // Returns number of iterations.
     int solve(
-        const ADMMPD_Options *options,
-        ADMMPD_Data *data);
+        const Options *options,
+        Data *data);
 
 protected:
 
     void update_constraints(
-        const ADMMPD_Options *options,
-        ADMMPD_Data *data);
+        const Options *options,
+        Data *data);
 
     void init_solve(
-        const ADMMPD_Options *options,
-        ADMMPD_Data *data);
+        const Options *options,
+        Data *data);
 
     // Global step with CG:
     // 1/2||Ax-b||^2 + k/2||Kx-l||^2
 	void solve_conjugate_gradients(
-        const ADMMPD_Options *options,
-        ADMMPD_Data *data);
+        const Options *options,
+        Data *data);
 
     void compute_lattice(
-        const ADMMPD_Options *options,
-        ADMMPD_Data *data);
+        const Options *options,
+        Data *data);
 
     void compute_matrices(
-        const ADMMPD_Options *options,
-        ADMMPD_Data *data);
+        const Options *options,
+        Data *data);
 
 	void append_energies(
-		const ADMMPD_Options *options,
-		ADMMPD_Data *data,
+		const Options *options,
+		Data *data,
 		std::vector<Eigen::Triplet<double> > &D_triplets);
 
 }; // class ADMMPD_solver

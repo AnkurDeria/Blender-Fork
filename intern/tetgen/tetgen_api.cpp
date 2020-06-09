@@ -100,7 +100,6 @@ static void make_tetgenio(
 
 bool tetgen_resmesh(TetGenRemeshData *tg)
 {
-    printf("\n\n\n\nCALLING TETGEN\n");
 //	float maxvol = compute_maxvol(tg->in_verts, tg->in_faces, tg->in_totfaces);
 //    float quality = 1.4;
 

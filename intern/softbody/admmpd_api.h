@@ -28,23 +28,38 @@
 extern "C" {
 #endif
 
-typedef struct ADMMPD_Data ADMMPD_Data;
-typedef struct Object Object;
-typedef struct BodyPoint BodyPoint;
+//typedef struct Mesh Mesh_;
 
-ADMMPD_Data* admmpd_init(
-    BodyPoint *bp,
-    int numVerts);
+typedef struct ADMMPDInterfaceData {
+    float *in_verts;
+    float *in_vel;
+    unsigned int *in_faces;
+    int in_totfaces;
+    int in_totverts;
+    // Num output verts might be different than num input verts.
+    // This is due to the lattice/tetmesh that is generated
+    // in init. They need to be cached by the system
+    float *out_verts;
+    float *out_vel;
+    int out_totverts;
+    // Solver data used internally
+    struct ADMMPDInternalData *data;
+} ADMMPDInterfaceData;
 
-void admmpd_cleanup(ADMMPD_Data*);
+void admmpd_alloc(ADMMPDInterfaceData*, int in_verts, int in_faces);
+void admmpd_dealloc(ADMMPDInterfaceData*);
+int admmpd_init(ADMMPDInterfaceData*);
+int admmpd_cache_valid(ADMMPDInterfaceData*, int numVerts);
+void admmpd_solve(ADMMPDInterfaceData*);
+void admmpd_map_vertices(ADMMPDInterfaceData*, float (*vertexCos)[3], int numVerts); 
 
-void admmpd_solve(ADMMPD_Data*);
+//void admmpd_solve(ADMMPDInterfaceData*);
 
 // Copies the results of the solve (pos, vel) into BodyPoint
-void admmpd_to_bodypoint(
-    ADMMPD_Data *data,
-    BodyPoint *bp,
-    int numVerts);
+//void admmpd_to_bodypoint(
+//    ADMMPD_Data *data,
+//    BodyPoint *bp,
+//    int numVerts);
 
 #ifdef __cplusplus
 }

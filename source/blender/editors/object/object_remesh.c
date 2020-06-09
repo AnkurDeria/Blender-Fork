@@ -1188,7 +1188,12 @@ static int tetgen_remesh_exec(bContext *C, wmOperator *op)
   Mesh *mesh = ob->data;
   Mesh *new_mesh = NULL;
 
-  new_mesh = BKE_mesh_remesh_tetgen_to_mesh_nomain(mesh);
+  unsigned int *tets;
+  int numtets;
+  new_mesh = BKE_mesh_remesh_tetgen_to_mesh_nomain(mesh,&tets,&numtets);
+  if (tets) {
+    MEM_freeN(tets);
+  }
 
   if (!new_mesh) {
     BKE_report(op->reports, RPT_ERROR, "TetGen remesher failed to create mesh");

@@ -24,8 +24,11 @@ set(INC
 
 set(INC_SYS
   ../../extern/softbody/src
+  ../tetgen
   ../../source/blender/makesdna
   ../../source/blender/blenkernel
+  ../../source/blender/blenlib
+  ../../intern/guardedalloc
   ${EIGEN3_INCLUDE_DIRS}
 )
 

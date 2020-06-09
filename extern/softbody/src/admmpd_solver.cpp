@@ -19,8 +19,8 @@ template <typename T> using RowSparseMatrix = SparseMatrix<T,RowMajor>;
 bool Solver::init(
     const Eigen::MatrixXd &V,
 	const Eigen::MatrixXi &T,
-    const ADMMPD_Options *options,
-    ADMMPD_Data *data)
+    const Options *options,
+    Data *data)
 {
 	if (!data || !options)
 		throw std::runtime_error("init: data/options null");
@@ -32,9 +32,10 @@ bool Solver::init(
 } // end init
 
 int Solver::solve(
-	const ADMMPD_Options *options,
-	ADMMPD_Data *data)
+	const Options *options,
+	Data *data)
 {
+
 	// Init the solve which computes
 	// quantaties like M_xbar and makes sure
 	// the variables are sized correctly.
@@ -77,8 +78,8 @@ int Solver::solve(
 } // end solve
 
 void Solver::init_solve(
-	const ADMMPD_Options *options,
-	ADMMPD_Data *data)
+	const Options *options,
+	Data *data)
 {
 	int nx = data->x.rows();
 	if (data->M_xbar.rows() != nx)
@@ -87,7 +88,7 @@ void Solver::init_solve(
 	// velocity and position
 	double dt = std::max(0.0, options->timestep_s);
 	data->x_start = data->x;
-	for( int i=0; i<nx; ++i )
+	for (int i=0; i<nx; ++i)
 	{
 		data->v.row(i) += options->grav;
 		data->M_xbar.row(i) =
@@ -103,8 +104,8 @@ void Solver::init_solve(
 } // end init solve
 
 void Solver::update_constraints(
-	const ADMMPD_Options *options,
-	ADMMPD_Data *data)
+	const Options *options,
+	Data *data)
 {
 
 	std::vector<double> l_coeffs;
@@ -145,8 +146,8 @@ void Solver::update_constraints(
 } // end update constraints
 
 void Solver::solve_conjugate_gradients(
-	const ADMMPD_Options *options,
-	ADMMPD_Data *data)
+	const Options *options,
+	Data *data)
 {
 	// If we don't have any constraints,
 	// we don't need to perform CG
@@ -220,8 +221,8 @@ void Solver::solve_conjugate_gradients(
 } // end solve conjugate gradients
 
 void Solver::compute_matrices(
-	const ADMMPD_Options *options,
-	ADMMPD_Data *data)
+	const Options *options,
+	Data *data)
 {
 	// Allocate per-vertex data
 	int nx = data->x.rows();
@@ -245,20 +246,29 @@ void Solver::compute_matrices(
 	// Add per-element energies to data
 	std::vector< Triplet<double> > trips;
 	append_energies(options,data,trips);
-	int nw = trips.back().row()+1;
-	double dt2 = std::max(0.0, options->timestep_s * options->timestep_s);
+	int n_row_D = trips.back().row()+1;
+	double dt2 = options->timestep_s * options->timestep_s;
+	if (dt2 <= 0)
+		dt2 = 1.0; // static solve
 
-	// Global matrix
-	data->D.resize(nw,nx);
+	// Weight matrix
+	RowSparseMatrix<double> W2(n_row_D,n_row_D);
+	VectorXi W_nnz = VectorXi::Ones(n_row_D);
+	W2.reserve(W_nnz);
+	int ne = data->indices.size();
+	for (int i=0; i<ne; ++i)
+	{
+		const Vector2i &idx = data->indices[i];
+		for (int j=0; j<idx[1]; ++j)
+		{
+			W2.coeffRef(idx[0]+j,idx[0]+j) = data->weights[i]*data->weights[i];
+		}
+	}
+
+	// Weighted Laplacian
+	data->D.resize(n_row_D,nx);
 	data->D.setFromTriplets(trips.begin(), trips.end());
 	data->Dt = data->D.transpose();
-	VectorXd wd = Map<VectorXd>(data->weights.data(), data->weights.size());
-	RowSparseMatrix<double> W2(nw,nw);
-	VectorXi W_nnz = VectorXi::Ones(nw);
-	W2.reserve(W_nnz);
-	for(int i=0; i<nw; ++i)
-		W2.coeffRef(i,i) = data->weights[i]*data->weights[i];
-
 	data->DtW2 = dt2 * data->Dt * W2;
 	data->A = data->DtW2 * data->D;
 	for (int i=0; i<nx; ++i)
@@ -274,16 +284,16 @@ void Solver::compute_matrices(
 		data->K[i].resize(1,nx);
 
 	// ADMM variables
-	data->z.resize(nw,3);
+	data->z.resize(n_row_D,3);
 	data->z.setZero();
-	data->u.resize(nw,3);
+	data->u.resize(n_row_D,3);
 	data->u.setZero();
 
 } // end compute matrices
 
 void Solver::append_energies(
-	const ADMMPD_Options *options,
-	ADMMPD_Data *data,
+	const Options *options,
+	Data *data,
 	std::vector<Triplet<double> > &D_triplets)
 {
 	int nt = data->tets.rows();

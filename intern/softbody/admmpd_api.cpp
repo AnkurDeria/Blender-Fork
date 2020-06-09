@@ -24,77 +24,173 @@
 #include "admmpd_api.h"
 #include "admmpd_solver.h"
 #include "admmpd_lattice.h"
-#include "DNA_object_types.h" // Object
-#include "BKE_softbody.h"
+#include "tetgen_api.h"
+#include "DNA_mesh_types.h" // Mesh
+#include "DNA_meshdata_types.h" // MVert
+#include "BKE_mesh_remesh_voxel.h" // TetGen
+#include "BKE_mesh.h" // BKE_mesh_free
+#include "MEM_guardedalloc.h" // 
+
 #include <iostream>
 
-struct ADMMPD_Data {
-  admmpd::ADMMPD_Options *options;
-  admmpd::ADMMPD_Data *data;
-  admmpd::Lattice *lattice;
+
+struct ADMMPDInternalData {
+  admmpd::Options *options;
+  admmpd::Data *data;
+//  admmpd::Lattice *lattice;
 };
 
-ADMMPD_Data* admmpd_init(
-    BodyPoint *bp,
-    int numVerts)
+
+void admmpd_alloc(ADMMPDInterfaceData *iface, int in_verts, int in_faces)
 {
-  if (!bp)
-    return NULL;
+  if (iface==NULL)
+    return;
 
-  ADMMPD_Data *admmpd_data = new ADMMPD_Data();
-  admmpd_data->options = new admmpd::ADMMPD_Options();
-  admmpd::ADMMPD_Options *options = admmpd_data->options;
-  admmpd_data->data = new admmpd::ADMMPD_Data();
-  admmpd::ADMMPD_Data *data = admmpd_data->data;
-  admmpd_data->lattice = new admmpd::Lattice();
-  admmpd::Lattice *lattice = admmpd_data->lattice;
+  iface->in_totverts = in_verts;
+  iface->in_verts = (float *)MEM_mallocN(in_verts*3*sizeof(float), "admmpd_verts");
+  iface->in_vel = (float *)MEM_mallocN(in_verts*3*sizeof(float), "admmpd_vel");
 
-  // Create initializer
-  Eigen::MatrixXd V(numVerts,3);
-  V.setZero();
-  for (int i = 0; i < numVerts; ++i)
+  iface->in_totfaces = in_faces;
+  iface->in_faces = (unsigned int *)MEM_mallocN(in_faces*3*sizeof(unsigned int), "admmpd_faces");
+}
+
+void admmpd_dealloc(ADMMPDInterfaceData *iface)
+{
+  if (iface==NULL)
+    return;
+
+  iface->in_totverts = 0;
+  if (iface->in_verts != NULL)
+    MEM_freeN(iface->in_verts);
+  if (iface->in_vel != NULL)
+    MEM_freeN(iface->in_vel);
+
+  iface->in_totfaces = 0;
+  if (iface->in_faces != NULL)
+    MEM_freeN(iface->in_faces);
+
+  iface->out_totverts = 0;
+  if (iface->out_verts != NULL)
+    MEM_freeN(iface->out_verts);
+  if (iface->out_vel != NULL)
+    MEM_freeN(iface->out_vel);
+
+  if (iface->data)
   {
-    BodyPoint &bpi = bp[i];
-    V(i,0) = bpi.pos[0];
-    V(i,1) = bpi.pos[1];
-    V(i,2) = bpi.pos[2];
+    if(iface->data->options)
+        delete iface->data->options;
+    if(iface->data->data)
+        delete iface->data->data;
+    delete iface->data;
   }
 
-  // Generate a mapping from x -> V
-  // Usually, dim(x) < dim(V)
-  Eigen::MatrixXd x;
-  Eigen::MatrixXi T;
-  lattice->generate(V, &x, &T);
+  iface->data = NULL;
+  iface->in_verts = NULL;
+  iface->in_vel = NULL;
+  iface->in_faces = NULL;
+  iface->out_verts = NULL;
+}
 
+int admmpd_init(ADMMPDInterfaceData *iface)
+{
+  if (iface==NULL)
+    return 0;
+  if (iface->in_verts==NULL || iface->in_vel==NULL || iface->in_faces==NULL)
+    return 0;
+  if (iface->in_totverts<=0 || iface->in_totfaces<=0)
+    return 0;
+
+  // Generate tets
+  TetGenRemeshData tg;
+  init_tetgenremeshdata(&tg);
+  tg.in_verts = iface->in_verts;
+  tg.in_totverts = iface->in_totverts;
+  tg.in_faces = iface->in_faces;
+  tg.in_totfaces = iface->in_totfaces;
+  bool success = tetgen_resmesh(&tg);
+  if (!success || tg.out_tottets==0)
+    return 0;
+
+  // Resize data
+  iface->out_totverts = tg.out_totverts;
+  iface->out_verts = (float *)MEM_callocN(
+      iface->out_totverts*3*sizeof(float), "ADMMPD_out_verts");
+  iface->out_vel = (float *)MEM_callocN(
+      iface->out_totverts*3*sizeof(float), "ADMMPD_out_verts");
+
+  // Create initializer for ADMMPD
+  int nv = tg.out_totverts;
+  int nt = tg.out_tottets;
+  Eigen::MatrixXd V(nv,3);
+  Eigen::MatrixXi T(nt,4);
+  V.setZero();
+  for (int i=0; i<nv; ++i)
+  {
+    for (int j=0; j<3; ++j)
+    {
+      V(i,j) = tg.out_verts[i*3+j];
+      iface->out_verts[i*3+j] = tg.out_verts[i*3+j];
+      iface->out_vel[i*3+j] = 0;
+    }
+  }
+  T.setZero();
+  for (int i=0; i<nt; ++i)
+  {
+    T(i,0) = tg.out_tets[i*4+0];
+    T(i,1) = tg.out_tets[i*4+1];
+    T(i,2) = tg.out_tets[i*4+2];
+    T(i,3) = tg.out_tets[i*4+3];
+  }
+
+  // Generate solver data
+  iface->data = new ADMMPDInternalData();
+  iface->data->options = new admmpd::Options();
+  admmpd::Options *options = iface->data->options;
+  iface->data->data = new admmpd::Data();
+  admmpd::Data *data = iface->data->data;
+
+  // Initialize
+  bool init_success = false;
   try
   {
-    admmpd::Solver().init(x, T, options, data);
+    init_success = admmpd::Solver().init(V, T, options, data);
   }
   catch(const std::exception &e)
   {
     printf("**ADMMPD Error on init: %s\n", e.what());
-    // Should probably return nullptr
   }
 
-  return admmpd_data;
+  // Clean up tetgen data
+  MEM_freeN(tg.out_tets);
+  MEM_freeN(tg.out_facets);
+  MEM_freeN(tg.out_verts);
+  return int(init_success);
 }
 
-void admmpd_cleanup(ADMMPD_Data *admmpd_data)
+int admmpd_cache_valid(ADMMPDInterfaceData *iface, int numVerts)
 {
-  if (!admmpd_data)
+  if (iface == NULL) // we haven't initialized yet
+    return true;
+
+  return iface->in_totverts == numVerts;
+}
+
+void admmpd_solve(ADMMPDInterfaceData *iface)
+{
+  if (iface == NULL)
     return;
-  
-  delete admmpd_data->data;
-  delete admmpd_data->options;
-  delete admmpd_data->lattice;
-  delete admmpd_data;
-}
 
-void admmpd_solve(ADMMPD_Data *admmpd_data)
-{
   try
   {
-    admmpd::Solver().solve(admmpd_data->options,admmpd_data->data);
+    admmpd::Solver().solve(iface->data->options,iface->data->data);
+    for (int i=0; i<iface->data->data->x.rows(); ++i)
+    {
+      for (int j=0; j<3; ++j)
+      {
+        iface->out_verts[i*3+j] = iface->data->data->x(i,j);
+        iface->out_vel[i*3+j] = iface->data->data->v(i,j);
+      }
+    }
   }
   catch(const std::exception &e)
   {
@@ -102,35 +198,24 @@ void admmpd_solve(ADMMPD_Data *admmpd_data)
   }
 }
 
-void admmpd_to_bodypoint(
-    ADMMPD_Data* data,
-    BodyPoint *bp,
-    int numVerts)
+void admmpd_map_vertices(ADMMPDInterfaceData *iface, float (*vertexCos)[3], int numVerts)
 {
-  if (!data || !bp)
+  if (iface == NULL)
+    return;
+
+  if (numVerts != iface->in_totverts || numVerts > iface->out_totverts)
   {
-    printf("DATA OR BP NULL!?\n");
+    printf("**ADMMPD TODO: PROPER VERTEX MAPPINGS\n");
     return;
   }
-
-  if (!data->data || !data->lattice)
-    return;
-
-  // Map x -> BodyPoint
-  // Usually, dim(x) < dim(V)
+  // TODO double check this, but I believe the first n verts
+  // created by tetgen are the same as the input. I hope. We'll find out I guess.
+  // If not, this function will be a placeholder for the mapping that
+  // will have to occur.
   for (int i=0; i<numVerts; ++i)
   {
-    BodyPoint &bpi = bp[i];
-    Eigen::Vector3d xi = data->lattice->get_mapped_vertex(
-      i, &data->data->x, &data->data->tets);
-    Eigen::Vector3d vi = data->lattice->get_mapped_vertex(
-      i, &data->data->v, &data->data->tets);
-    bpi.pos[0] = xi[0];
-    bpi.pos[1] = xi[1];
-    bpi.pos[2] = xi[2];
-    bpi.vec[0] = vi[0]; // vec is velocity?
-    bpi.vec[1] = vi[1];
-    bpi.vec[2] = vi[2];
+    vertexCos[i][0] = iface->out_verts[i*3+0];
+    vertexCos[i][1] = iface->out_verts[i*3+1];
+    vertexCos[i][2] = iface->out_verts[i*3+2];
   }
-
-} // end map to object
+}
