@@ -21,14 +21,12 @@
  * \ingroup admmpd
  */
 
-#ifndef __ADMMPD_API_H__
-#define __ADMMPD_API_H__
+#ifndef ADMMPD_API_H
+#define ADMMPD_API_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-//typedef struct Mesh Mesh_;
 
 typedef struct ADMMPDInterfaceData {
     float *in_verts;
@@ -51,18 +49,10 @@ void admmpd_dealloc(ADMMPDInterfaceData*);
 int admmpd_init(ADMMPDInterfaceData*);
 int admmpd_cache_valid(ADMMPDInterfaceData*, int numVerts);
 void admmpd_solve(ADMMPDInterfaceData*);
-void admmpd_map_vertices(ADMMPDInterfaceData*, float (*vertexCos)[3], int numVerts); 
-
-//void admmpd_solve(ADMMPDInterfaceData*);
-
-// Copies the results of the solve (pos, vel) into BodyPoint
-//void admmpd_to_bodypoint(
-//    ADMMPD_Data *data,
-//    BodyPoint *bp,
-//    int numVerts);
+void admmpd_get_vertices(ADMMPDInterfaceData*, float (*vertexCos)[3], int numVerts); 
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __ADMMPD_API_H__ */
+#endif // ADMMPD_API_H

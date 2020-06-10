@@ -84,11 +84,12 @@ void admmpd_dealloc(ADMMPDInterfaceData *iface)
     delete iface->data;
   }
 
-  iface->data = NULL;
   iface->in_verts = NULL;
   iface->in_vel = NULL;
   iface->in_faces = NULL;
   iface->out_verts = NULL;
+  iface->out_vel = NULL;
+  iface->data = NULL;
 }
 
 int admmpd_init(ADMMPDInterfaceData *iface)
@@ -180,6 +181,19 @@ void admmpd_solve(ADMMPDInterfaceData *iface)
   if (iface == NULL)
     return;
 
+  // Whatever is in out_verts and out_vel needs
+  // to be mapped to internal data, as it's used as input
+  // when reading from cached data.
+  int nv = iface->out_totverts;
+  for (int i=0; i<nv; ++i)
+  {
+    for (int j=0; j<3; ++j)
+    {
+      iface->data->data->x(i,j) = iface->out_verts[i*3+j];
+      iface->data->data->v(i,j) = iface->out_vel[i*3+j];
+    }
+  }
+
   try
   {
     admmpd::Solver().solve(iface->data->options,iface->data->data);
@@ -198,7 +212,7 @@ void admmpd_solve(ADMMPDInterfaceData *iface)
   }
 }
 
-void admmpd_map_vertices(ADMMPDInterfaceData *iface, float (*vertexCos)[3], int numVerts)
+void admmpd_get_vertices(ADMMPDInterfaceData *iface, float (*vertexCos)[3], int numVerts)
 {
   if (iface == NULL)
     return;

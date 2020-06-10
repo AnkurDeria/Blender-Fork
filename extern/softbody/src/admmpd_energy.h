@@ -12,7 +12,7 @@ namespace admmpd {
 
 class Lame {
 public:
-	int m_model;
+	int m_model; // 0=ARAP
 	double m_mu;
 	double m_lambda;
 	double m_bulk_mod;

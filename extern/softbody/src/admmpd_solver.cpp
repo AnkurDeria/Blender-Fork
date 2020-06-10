@@ -52,15 +52,19 @@ int Solver::solve(
 	int iters = 0;
 	for (; iters < options->max_admm_iters; ++iters)
 	{
-
+		// Update ADMM z/u
 		solve_local_step(options,data);
+
+		// Perform collision detection and linearization
 		update_constraints(options,data);
 
+		// Solve Ax=b s.t. Kx=l
 		data->b.noalias() = data->M_xbar + data->DtW2*(data->z-data->u);
 		solve_conjugate_gradients(options,data);
 
 	} // end solver iters
 
+	// Update velocity (if not static solve)
 	double dt = options->timestep_s;
 	if (dt > 0.0)
 		data->v.noalias() = (data->x-data->x_start)*(1.0/dt);
@@ -99,8 +103,9 @@ static void parallel_zu_update(
 	const int i,
 	const TaskParallelTLS *__restrict UNUSED(tls))
 {
-	Lame lame; // TODO lame params as input
 	ThreadData *td = (ThreadData*)userdata;
+	Lame lame;
+	lame.set_from_youngs_poisson(td->options->youngs,td->options->poisson);
 	EnergyTerm().update(
 		td->data->indices[i][0],
 		lame,
@@ -222,47 +227,53 @@ void Solver::solve_conjugate_gradients(
 		return dot;
 	};
 
+	// Update CGData
+	admmpd::Data::CGData *cgdata = &data->cgdata;
 	double eps = options->min_res;
-	MatrixXd b = data->b;
-	int nv = b.rows();
-	RowSparseMatrix<double> A[3];
-	MatrixXd r(b.rows(),3);
-	MatrixXd z(nv,3);
-	MatrixXd p(nv,3);
-	MatrixXd Ap(nv,3);
+	cgdata->b = data->b;
+	int nv = data->b.rows();
+	if (cgdata->r.rows() !=nv)
+	{
+		cgdata->r.resize(nv,3);
+		cgdata->z.resize(nv,3);
+		cgdata->p.resize(nv,3);
+		cgdata->Ap.resize(nv,3);
+	}
 
 	for (int i=0; i<3; ++i)
 	{
 		RowSparseMatrix<double> Kt = data->K[i].transpose();
-		A[i] = data->A + data->spring_k*RowSparseMatrix<double>(Kt*data->K[i]);
-		b.col(i) += data->spring_k*Kt*data->l;
-		r.col(i) = b.col(i) - A[i]*data->x.col(i);
+		cgdata->A[i] = data->A + data->spring_k*RowSparseMatrix<double>(Kt*data->K[i]);
+		cgdata->b.col(i).noalias() += data->spring_k*Kt*data->l;
+		cgdata->r.col(i).noalias() = cgdata->b.col(i) - cgdata->A[i]*data->x.col(i);
 	}
-	solve_Ax_b(data,&z,&r);
-	p = z;
+	solve_Ax_b(data,&cgdata->z,&cgdata->r);
+	cgdata->p = cgdata->z;
 
 	for (int iter=0; iter<options->max_cg_iters; ++iter)
 	{
 		for( int i=0; i<3; ++i )
-			Ap.col(i) = A[i]*p.col(i);
+			cgdata->Ap.col(i).noalias() = cgdata->A[i]*cgdata->p.col(i);
 
-		double p_dot_Ap = mat_inner(p,Ap);
+		double p_dot_Ap = mat_inner(cgdata->p,cgdata->Ap);
 		if( p_dot_Ap==0.0 )
 			break;
 
-		double zk_dot_rk = mat_inner(z,r);
+		double zk_dot_rk = mat_inner(cgdata->z,cgdata->r);
 		if( zk_dot_rk==0.0 )
 			break;
 
 		double alpha = zk_dot_rk / p_dot_Ap;
-		data->x += alpha * p;
-		r -= alpha * Ap;
-		if( r.lpNorm<Infinity>() < eps )
+		data->x.noalias() += alpha * cgdata->p;
+		cgdata->r.noalias() -= alpha * cgdata->Ap;
+		if( cgdata->r.lpNorm<Infinity>() < eps )
 			break;
-		solve_Ax_b(data,&z,&r);
-		double beta = mat_inner(z,r) / zk_dot_rk;
-		p = z + beta*p;
+
+		solve_Ax_b(data,&cgdata->z,&cgdata->r);
+		double beta = mat_inner(cgdata->z,cgdata->r) / zk_dot_rk;
+		cgdata->p = cgdata->z + beta*cgdata->p;
 	}
+
 } // end solve conjugate gradients
 
 void Solver::compute_matrices(
@@ -285,14 +296,14 @@ void Solver::compute_matrices(
 		compute_masses(options,data);
 
 	// Add per-element energies to data
-	std::vector< Triplet<double> > trips;
+	std::vector<Triplet<double> > trips;
 	append_energies(options,data,trips);
 	int n_row_D = trips.back().row()+1;
 	double dt2 = options->timestep_s * options->timestep_s;
-	if (dt2 <= 0)
-		dt2 = 1.0; // static solve
+	if (options->timestep_s <= 0)
+		dt2 = 1.0; // static solve, use dt=1 to not scale matrices
 
-	// Weight matrix
+	// Diagonal weight matrix
 	RowSparseMatrix<double> W2(n_row_D,n_row_D);
 	VectorXi W_nnz = VectorXi::Ones(n_row_D);
 	W2.reserve(W_nnz);
@@ -301,30 +312,27 @@ void Solver::compute_matrices(
 	{
 		const Vector2i &idx = data->indices[i];
 		for (int j=0; j<idx[1]; ++j)
-		{
 			W2.coeffRef(idx[0]+j,idx[0]+j) = data->weights[i]*data->weights[i];
-		}
 	}
 
-	// Weighted Laplacian
+	// Mass weighted Laplacian
 	data->D.resize(n_row_D,nx);
 	data->D.setFromTriplets(trips.begin(), trips.end());
-	data->Dt = data->D.transpose();
-	data->DtW2 = dt2 * data->Dt * W2;
+	data->DtW2 = dt2 * data->D.transpose() * W2;
 	data->A = data->DtW2 * data->D;
 	for (int i=0; i<nx; ++i)
 		data->A.coeffRef(i,i) += data->m[i];
-
 	data->ldltA.compute(data->A);
 	data->b.resize(nx,3);
 	data->b.setZero();
 
+	// Constraint data
 	data->spring_k = options->mult_k*data->A.diagonal().maxCoeff();
 	data->l = VectorXd::Zero(1);
 	for (int i=0; i<3; ++i)
 		data->K[i].resize(1,nx);
 
-	// ADMM variables
+	// ADMM dual/lagrange
 	data->z.resize(n_row_D,3);
 	data->z.setZero();
 	data->u.resize(n_row_D,3);
@@ -338,26 +346,26 @@ void Solver::compute_masses(
 {
 	// Source: https://github.com/mattoverby/mclscene/blob/master/include/MCL/TetMesh.hpp
 	// Computes volume-weighted masses for each vertex
-	// density_kgm3 is the unit-volume density (e.g. soft rubber: 1100)
-	double density_kgm3 = 1100;
+	// density_kgm3 is the unit-volume density
 	data->m.resize(data->x.rows());
 	data->m.setZero();
 	int n_tets = data->tets.rows();
 	for (int t=0; t<n_tets; ++t)
 	{
 		RowVector4i tet = data->tets.row(t);
+		RowVector3d tet0 = data->x.row(tet[0]);
 		Matrix3d edges;
-		edges.col(0) = data->x.row(tet[1]) - data->x.row(tet[0]);
-		edges.col(1) = data->x.row(tet[2]) - data->x.row(tet[0]);
-		edges.col(2) = data->x.row(tet[3]) - data->x.row(tet[0]);
+		edges.col(0) = data->x.row(tet[1]) - tet0;
+		edges.col(1) = data->x.row(tet[2]) - tet0;
+		edges.col(2) = data->x.row(tet[3]) - tet0;
 		double v = std::abs((edges).determinant()/6.f);
-		double tet_mass = density_kgm3 * v;
-		data->m[ tet[0] ] += tet_mass / 4.f;
-		data->m[ tet[1] ] += tet_mass / 4.f;
-		data->m[ tet[2] ] += tet_mass / 4.f;
-		data->m[ tet[3] ] += tet_mass / 4.f;
+		double tet_mass = options->density_kgm3 * v;
+		data->m[tet[0]] += tet_mass / 4.f;
+		data->m[tet[1]] += tet_mass / 4.f;
+		data->m[tet[2]] += tet_mass / 4.f;
+		data->m[tet[3]] += tet_mass / 4.f;
 	}
-}
+} // end compute masses
 
 void Solver::append_energies(
 	const Options *options,
@@ -372,6 +380,7 @@ void Solver::append_energies(
 	data->rest_volumes.reserve(nt);
 	data->weights.reserve(nt);
 	Lame lame;
+	lame.set_from_youngs_poisson(options->youngs, options->poisson);
 
 	int energy_index = 0;
 	for (int i=0; i<nt; ++i)
