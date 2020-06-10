@@ -12,9 +12,16 @@
 #include <stdio.h>
 #include <iostream>
 
+#include "BLI_task.h" // threading
+
 namespace admmpd {
 using namespace Eigen;
 template <typename T> using RowSparseMatrix = SparseMatrix<T,RowMajor>;
+
+typedef struct ThreadData {
+	const Options *options;
+	Data *data;
+} ThreadData;
 
 bool Solver::init(
     const Eigen::MatrixXd &V,
@@ -41,30 +48,14 @@ int Solver::solve(
 	// the variables are sized correctly.
 	init_solve(options,data);
 
-	int ne = data->rest_volumes.size();
-	Lame lame; // TODO lame params as input
-
 	// Begin solver loop
 	int iters = 0;
 	for (; iters < options->max_admm_iters; ++iters)
 	{
-		// Local step
-		data->Dx.noalias() = data->D * data->x;
-		for(int i=0; i<ne; ++i)
-		{
-			EnergyTerm().update(
-				data->indices[i][0],
-				lame,
-				data->rest_volumes[i],
-				data->weights[i],
-				&data->x,
-				&data->Dx,
-				&data->z,
-				&data->u );
-		}
 
-		// Global step
+		solve_local_step(options,data);
 		update_constraints(options,data);
+
 		data->b.noalias() = data->M_xbar + data->DtW2*(data->z-data->u);
 		solve_conjugate_gradients(options,data);
 
@@ -102,6 +93,35 @@ void Solver::init_solve(
 	data->u.setZero();
 
 } // end init solve
+
+static void parallel_zu_update(
+	void *__restrict userdata,
+	const int i,
+	const TaskParallelTLS *__restrict UNUSED(tls))
+{
+	Lame lame; // TODO lame params as input
+	ThreadData *td = (ThreadData*)userdata;
+	EnergyTerm().update(
+		td->data->indices[i][0],
+		lame,
+		td->data->rest_volumes[i],
+		td->data->weights[i],
+		&td->data->x,
+		&td->data->Dx,
+		&td->data->z,
+		&td->data->u );
+} // end parallel zu update
+
+void Solver::solve_local_step(
+	const Options *options,
+	Data *data)
+{
+	int ne = data->rest_volumes.size();
+  	ThreadData thread_data = {.options=options, .data = data};
+	TaskParallelSettings settings;
+	BLI_parallel_range_settings_defaults(&settings);
+	BLI_task_parallel_range(0, ne, &thread_data, parallel_zu_update, &settings);
+} // end local step
 
 void Solver::update_constraints(
 	const Options *options,
@@ -145,19 +165,45 @@ void Solver::update_constraints(
 
 } // end update constraints
 
+typedef struct LinSolveThreadData {
+	Data *data;
+	MatrixXd *x;
+	MatrixXd *b;
+} LinSolveThreadData;
+
+static void parallel_lin_solve(
+	void *__restrict userdata,
+	const int i,
+	const TaskParallelTLS *__restrict UNUSED(tls))
+{
+	LinSolveThreadData *td = (LinSolveThreadData*)userdata;
+	td->x->col(i) = td->data->ldltA.solve(td->b->col(i));
+} // end parallel lin solve
+
 void Solver::solve_conjugate_gradients(
 	const Options *options,
 	Data *data)
 {
+	// Solve Ax = b in parallel
+	auto solve_Ax_b = [](
+		Data *data_,
+		MatrixXd *x_,
+		MatrixXd *b_)
+	{
+		LinSolveThreadData thread_data = {.data=data_, .x=x_, .b=b_};
+		TaskParallelSettings settings;
+		BLI_parallel_range_settings_defaults(&settings);
+		BLI_task_parallel_range(0, 3, &thread_data, parallel_lin_solve, &settings);
+	};
+
 	// If we don't have any constraints,
 	// we don't need to perform CG
-	int nnz = std::max(std::max(
+	if (std::max(std::max(
 		data->K[0].nonZeros(),
 		data->K[1].nonZeros()),
-		data->K[2].nonZeros());
-	if (nnz==0)
+		data->K[2].nonZeros())==0)
 	{
-		data->x.noalias() = data->ldltA.solve(data->b);
+		solve_Ax_b(data,&data->x,&data->b);
 		return;
 	}
 
@@ -165,7 +211,7 @@ void Solver::solve_conjugate_gradients(
 	// if they were instead vectorized
 	auto mat_inner = [](
 		const MatrixXd &A,
-		const MatrixXd &B )
+		const MatrixXd &B)
 	{
 		double dot = 0.0;
 		int nr = std::min(A.rows(), B.rows());
@@ -192,7 +238,7 @@ void Solver::solve_conjugate_gradients(
 		b.col(i) += data->spring_k*Kt*data->l;
 		r.col(i) = b.col(i) - A[i]*data->x.col(i);
 	}
-	z = data->ldltA.solve(r);
+	solve_Ax_b(data,&z,&r);
 	p = z;
 
 	for (int iter=0; iter<options->max_cg_iters; ++iter)
@@ -213,8 +259,7 @@ void Solver::solve_conjugate_gradients(
 		r -= alpha * Ap;
 		if( r.lpNorm<Infinity>() < eps )
 			break;
-
-		z = data->ldltA.solve(r);
+		solve_Ax_b(data,&z,&r);
 		double beta = mat_inner(z,r) / zk_dot_rk;
 		p = z + beta*p;
 	}
@@ -237,10 +282,7 @@ void Solver::compute_matrices(
 		data->v.setZero();
 	}
 	if (data->m.rows() != nx)
-	{ // TODO get from input
-		data->m.resize(nx);
-		data->m.setOnes();
-	}
+		compute_masses(options,data);
 
 	// Add per-element energies to data
 	std::vector< Triplet<double> > trips;
@@ -289,6 +331,33 @@ void Solver::compute_matrices(
 	data->u.setZero();
 
 } // end compute matrices
+
+void Solver::compute_masses(
+	const Options *options,
+	Data *data)
+{
+	// Source: https://github.com/mattoverby/mclscene/blob/master/include/MCL/TetMesh.hpp
+	// Computes volume-weighted masses for each vertex
+	// density_kgm3 is the unit-volume density (e.g. soft rubber: 1100)
+	double density_kgm3 = 1100;
+	data->m.resize(data->x.rows());
+	data->m.setZero();
+	int n_tets = data->tets.rows();
+	for (int t=0; t<n_tets; ++t)
+	{
+		RowVector4i tet = data->tets.row(t);
+		Matrix3d edges;
+		edges.col(0) = data->x.row(tet[1]) - data->x.row(tet[0]);
+		edges.col(1) = data->x.row(tet[2]) - data->x.row(tet[0]);
+		edges.col(2) = data->x.row(tet[3]) - data->x.row(tet[0]);
+		double v = std::abs((edges).determinant()/6.f);
+		double tet_mass = density_kgm3 * v;
+		data->m[ tet[0] ] += tet_mass / 4.f;
+		data->m[ tet[1] ] += tet_mass / 4.f;
+		data->m[ tet[2] ] += tet_mass / 4.f;
+		data->m[ tet[3] ] += tet_mass / 4.f;
+	}
+}
 
 void Solver::append_energies(
 	const Options *options,

@@ -84,6 +84,10 @@ protected:
         const Options *options,
         Data *data);
 
+	void solve_local_step(
+        const Options *options,
+        Data *data);
+
     // Global step with CG:
     // 1/2||Ax-b||^2 + k/2||Kx-l||^2
 	void solve_conjugate_gradients(
@@ -95,6 +99,10 @@ protected:
         Data *data);
 
     void compute_matrices(
+        const Options *options,
+        Data *data);
+
+    void compute_masses(
         const Options *options,
         Data *data);
 

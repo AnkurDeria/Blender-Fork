@@ -9,7 +9,7 @@ using namespace Eigen;
 
 Lame::Lame() : m_model(0)
 {
-	set_from_youngs_poisson(100000,0.299);
+	set_from_youngs_poisson(10000000,0.399);
 }
 
 void Lame::set_from_youngs_poisson(double youngs, double poisson)
@@ -55,6 +55,7 @@ void EnergyTerm::update(
 	Eigen::MatrixXd *z,
 	Eigen::MatrixXd *u)
 {
+	(void)(x);
 	Matrix3d Dix = Dx->block<3,3>(index,0);
 	Matrix3d ui = u->block<3,3>(index,0);
 	Matrix3d zi = Dix + ui;
@@ -92,9 +93,11 @@ int EnergyTerm::init_tet(
 	Matrix<double,3,3> edges_inv = edges.inverse();
 	volume = edges.determinant() / 6.0f;
 	if( volume < 0 )
-		throw std::runtime_error("**Solver::energy_init: Inverted initial tet");
+	{
+		printf("**EnergyTerm::init_tet: Inverted initial tet");
+		return 0;
+	}
 	double k = lame.m_bulk_mod;
-std::cout << "IDX: " << index << " bulk mod: " << k << std::endl;
 	weight = std::sqrt(k*volume);
 	Matrix<double,4,3> S = Matrix<double,4,3>::Zero();
 	S(0,0) = -1; S(0,1) = -1; S(0,2) = -1;

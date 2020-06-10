@@ -3545,6 +3545,46 @@ static void sbStoreLastFrame(struct Depsgraph *depsgraph, Object *object, float 
   object_orig->soft->last_frame = framenr;
 }
 
+static void admm_resize_softbody(Object *ob, int totpoint)
+{
+  if (totpoint<=0)
+    return;
+
+  SoftBody *sb = ob->soft;
+  if (sb->totpoint && sb->bpoint !=NULL)
+    MEM_freeN(sb->bpoint);
+  printf("bp ptr: %p\n",sb);
+  printf("bodypt: %d\n",sb->totpoint);
+
+  sb->totpoint = totpoint;
+  sb->totspring = 0;
+//  sb->bpoint = MEM_mallocN(totpoint * sizeof(BodyPoint), "bodypoint");
+}
+
+static void admm_copy_to_softbody(Object *ob)
+{
+  SoftBody *sb = ob->soft;
+  ADMMPDInterfaceData *admmpd = sb->admmpd;
+  if (admmpd == NULL)
+    return;
+
+  if (sb->totpoint != admmpd->out_totverts)
+  {
+    printf("**admm_copy_to_softbody error: DOF missmatch");
+    return;
+  }
+
+  for (int i=0; i<admmpd->out_totverts; ++i)
+  {
+    BodyPoint *pt = &sb->bpoint[i];
+    for (int j=0; j<3; ++j)
+    {
+      pt->pos[j] = admmpd->out_verts[i*3+j];
+      pt->vec[j] = admmpd->out_vel[i*3+j];
+    }
+  }
+}
+
 /* simulates one step. framenr is in frames */
 void sbObjectStep_admmpd(struct Depsgraph *depsgraph,
                   Scene *scene,
@@ -3558,22 +3598,24 @@ void sbObjectStep_admmpd(struct Depsgraph *depsgraph,
 
   Mesh *me = ob->data;
   SoftBody *sb = ob->soft;
-  PointCache *cache = sb->shared->pointcache;
+
+//  PointCache *cache = sb->shared->pointcache;
   int framenr = (int)cfra;
-  int framedelta = framenr - cache->simframe;
+//  int framedelta = framenr - cache->simframe;
+  int startframe = 1;
 
-  PTCacheID pid;
-  BKE_ptcache_id_from_softbody(&pid, ob, sb);
-  float timescale;
-  int startframe, endframe; // start and end frame of the cache
-  BKE_ptcache_id_time(&pid, scene, framenr, &startframe, &endframe, &timescale);
-  framenr = framenr < endframe ? framenr : endframe; // min(framenr,endframe)
+//  PTCacheID pid;
+//  BKE_ptcache_id_from_softbody(&pid, ob, sb);
+//  float timescale;
+//  int startframe, endframe; // start and end frame of the cache
+//  BKE_ptcache_id_time(&pid, scene, framenr, &startframe, &endframe, &timescale);
+//  framenr = framenr < endframe ? framenr : endframe; // min(framenr,endframe)
 
-  if (framenr < startframe)
-  {
-    BKE_ptcache_invalidate(cache);
-    return;
-  }
+//  if (framenr < startframe)
+//  {
+//    BKE_ptcache_invalidate(cache);
+//    return;
+//  }
 
   // Reset simulation
   bool reset_sim =
@@ -3583,7 +3625,7 @@ void sbObjectStep_admmpd(struct Depsgraph *depsgraph,
 
   if (reset_sim)
   {
-      BKE_ptcache_invalidate(cache);
+//      BKE_ptcache_invalidate(cache);
 
       if (sb->admmpd == NULL)
         sb->admmpd = MEM_callocN(sizeof(ADMMPDInterfaceData), "SoftBody_ADMMPD");
@@ -3622,15 +3664,19 @@ void sbObjectStep_admmpd(struct Depsgraph *depsgraph,
       // Initalize solver
       admmpd_init(sb->admmpd);
 
+      // Set up softbody to store defo verts
+      int num_defo_verts = sb->admmpd->out_totverts;
+      admm_resize_softbody(ob,num_defo_verts);
+
   } // end reset ADMMPD data
 
   // Cache vertices at initializer
   if (framenr == startframe)
   {
-    BKE_ptcache_id_reset(scene, &pid, PTCACHE_RESET_OUTDATED);
-    BKE_ptcache_validate(cache, framenr);
-    cache->flag &= ~PTCACHE_REDO_NEEDED;
-    sbStoreLastFrame(depsgraph, ob, framenr);
+//    BKE_ptcache_id_reset(scene, &pid, PTCACHE_RESET_OUTDATED);
+//    BKE_ptcache_validate(cache, framenr);
+//    cache->flag &= ~PTCACHE_REDO_NEEDED;
+//    sbStoreLastFrame(depsgraph, ob, framenr);
     return;
   }
 
@@ -3642,10 +3688,11 @@ void sbObjectStep_admmpd(struct Depsgraph *depsgraph,
 
   admmpd_solve(sb->admmpd);
   admmpd_map_vertices(sb->admmpd,vertexCos,numVerts);
+//  admm_copy_to_softbody(ob);
 
 //  BKE_ptcache_validate(cache, framenr);
 //  BKE_ptcache_write(&pid, framenr);
-  //sbStoreLastFrame(depsgraph, ob, framenr);
+//  sbStoreLastFrame(depsgraph, ob, framenr);
 
 } // end step object with ADMMPD
 
@@ -3657,8 +3704,8 @@ void sbObjectStep(struct Depsgraph *depsgraph,
                   float (*vertexCos)[3],
                   int numVerts)
 {
- sbObjectStep_admmpd(depsgraph,scene,ob,cfra,vertexCos,numVerts);
- return;
+sbObjectStep_admmpd(depsgraph,scene,ob,cfra,vertexCos,numVerts);
+return;
 
   SoftBody *sb = ob->soft;
   PointCache *cache;
