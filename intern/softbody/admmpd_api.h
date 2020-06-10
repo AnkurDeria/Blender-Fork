@@ -36,7 +36,8 @@ typedef struct ADMMPDInterfaceData {
     int in_totverts;
     // Num output verts might be different than num input verts.
     // This is due to the lattice/tetmesh that is generated
-    // in init. They need to be cached by the system
+    // in init. You can use them as input if reading from cache,
+    // as they will be copied to internal solver data before admmpd_solve.
     float *out_verts;
     float *out_vel;
     int out_totverts;
@@ -44,11 +45,22 @@ typedef struct ADMMPDInterfaceData {
     struct ADMMPDInternalData *data;
 } ADMMPDInterfaceData;
 
-void admmpd_alloc(ADMMPDInterfaceData*, int in_verts, int in_faces);
+// Allocates ADMMPDInterfaceData, using in_totfaces and in_totverts.
+// Does not allocate solver data, which is created on admmpd_init
+void admmpd_alloc(ADMMPDInterfaceData*);
+
+// Clears all solver data and ADMMPDInterfaceData
 void admmpd_dealloc(ADMMPDInterfaceData*);
+
+// Initializes solver and allocates internal data
 int admmpd_init(ADMMPDInterfaceData*);
-int admmpd_cache_valid(ADMMPDInterfaceData*, int numVerts);
+
+// Copies out_verts and out_verts to internal data
+// Performs solve over the time step
+// Copies internal data to out_verts and out_vel
 void admmpd_solve(ADMMPDInterfaceData*);
+
+// Copies ADMMPDInterfaceData::out_ to vertexCos
 void admmpd_get_vertices(ADMMPDInterfaceData*, float (*vertexCos)[3], int numVerts); 
 
 #ifdef __cplusplus

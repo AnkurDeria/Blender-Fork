@@ -859,8 +859,9 @@ static void renew_softbody(Scene *scene, Object *ob, int totpoint, int totspring
     if (ob->type == OB_MESH)
     {
       const Mesh *me = ob->data;
-      int totfaces = poly_to_tri_count(me->totpoly, me->totloop);
-      admmpd_alloc(sb->admmpd, totpoint, totfaces);
+      sb->admmpd->in_totfaces = poly_to_tri_count(me->totpoly, me->totloop);
+      sb->admmpd->in_totverts = me->totvert;
+      admmpd_alloc(sb->admmpd);
     }  
 
     /* initialize BodyPoint array */
@@ -3571,7 +3572,7 @@ static void admmpd_copy_to_softbody(Object *ob)
 
   if (sb->totpoint != admmpd->out_totverts)
   {
-    printf("**admmpd_copy_to_softbody error: DOF missmatch");
+    printf("**admm_copy_to_softbody error: DOF missmatch");
     return;
   }
 
@@ -3598,8 +3599,9 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
 
   // Resize data
   admmpd_dealloc(sb->admmpd);
-  int totfaces = poly_to_tri_count(me->totpoly, me->totloop);
-  admmpd_alloc(sb->admmpd, me->totvert, totfaces);
+  sb->admmpd->in_totfaces = poly_to_tri_count(me->totpoly, me->totloop);
+  sb->admmpd->in_totverts = me->totvert;
+  admmpd_alloc(sb->admmpd);
 
   // Initialize input data
   for (int i=0; i<me->totvert; ++i)
@@ -3617,9 +3619,9 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
     }
   }
   MLoopTri *looptri, *lt;
-  looptri = lt = MEM_mallocN(sizeof(*looptri)*totfaces, __func__);
+  looptri = lt = MEM_mallocN(sizeof(*looptri)*sb->admmpd->in_totfaces, __func__);
   BKE_mesh_recalc_looptri(me->mloop, me->mpoly, me->mvert, me->totloop, me->totpoly, looptri);
-  for (int i=0; i<totfaces; ++i, ++lt)
+  for (int i=0; i<sb->admmpd->in_totfaces; ++i, ++lt)
   {
       sb->admmpd->in_faces[i*3+0] = me->mloop[lt->tri[0]].v;
       sb->admmpd->in_faces[i*3+1] = me->mloop[lt->tri[1]].v;

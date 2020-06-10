@@ -41,17 +41,30 @@ struct ADMMPDInternalData {
 };
 
 
-void admmpd_alloc(ADMMPDInterfaceData *iface, int in_verts, int in_faces)
+void admmpd_alloc(ADMMPDInterfaceData *iface)
 {
   if (iface==NULL)
     return;
 
-  iface->in_totverts = in_verts;
-  iface->in_verts = (float *)MEM_mallocN(in_verts*3*sizeof(float), "admmpd_verts");
-  iface->in_vel = (float *)MEM_mallocN(in_verts*3*sizeof(float), "admmpd_vel");
+  if (iface->in_verts != NULL)
+  {
+    MEM_freeN(iface->in_verts);
+    iface->in_verts = NULL;
+  }
+  if (iface->in_vel != NULL)
+  {
+    MEM_freeN(iface->in_vel);
+    iface->in_vel = NULL;
+  }
+  if (iface->in_faces != NULL)
+  {
+    MEM_freeN(iface->in_faces);
+    iface->in_faces = NULL;
+  }
 
-  iface->in_totfaces = in_faces;
-  iface->in_faces = (unsigned int *)MEM_mallocN(in_faces*3*sizeof(unsigned int), "admmpd_faces");
+  iface->in_verts = (float *)MEM_mallocN(iface->in_totverts*3*sizeof(float), "admmpd_verts");
+  iface->in_vel = (float *)MEM_mallocN(iface->in_totverts*3*sizeof(float), "admmpd_vel");
+  iface->in_faces = (unsigned int *)MEM_mallocN(iface->in_totfaces*3*sizeof(unsigned int), "admmpd_faces");
 }
 
 void admmpd_dealloc(ADMMPDInterfaceData *iface)
@@ -114,10 +127,20 @@ int admmpd_init(ADMMPDInterfaceData *iface)
 
   // Resize data
   iface->out_totverts = tg.out_totverts;
+  if (iface->out_verts != NULL)
+  {
+    MEM_freeN(iface->out_verts);
+    iface->out_verts = NULL;
+  }
+  if (iface->out_vel != NULL)
+  {
+    MEM_freeN(iface->out_vel);
+    iface->out_vel = NULL;
+  }
   iface->out_verts = (float *)MEM_callocN(
       iface->out_totverts*3*sizeof(float), "ADMMPD_out_verts");
   iface->out_vel = (float *)MEM_callocN(
-      iface->out_totverts*3*sizeof(float), "ADMMPD_out_verts");
+      iface->out_totverts*3*sizeof(float), "ADMMPD_out_vel");
 
   // Create initializer for ADMMPD
   int nv = tg.out_totverts;
@@ -166,14 +189,6 @@ int admmpd_init(ADMMPDInterfaceData *iface)
   MEM_freeN(tg.out_facets);
   MEM_freeN(tg.out_verts);
   return int(init_success);
-}
-
-int admmpd_cache_valid(ADMMPDInterfaceData *iface, int numVerts)
-{
-  if (iface == NULL) // we haven't initialized yet
-    return true;
-
-  return iface->in_totverts == numVerts;
 }
 
 void admmpd_solve(ADMMPDInterfaceData *iface)
