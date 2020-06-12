@@ -110,15 +110,13 @@ bool tetgen_resmesh(TetGenRemeshData *tg)
 //	if (quality>0)
 //        switches << "q" << quality;
 
-    char *c_switches = new char[switches.str().length()+1];
-    std::strcpy(c_switches,switches.str().c_str());
 
     tetgenio in;
     make_tetgenio(tg->in_verts, tg->in_faces, tg->in_totverts, tg->in_totfaces, in);
 	tetgenio out;
     out.initialize();
+    char *c_switches = (char *)switches.str().c_str();
 	tetrahedralize(c_switches, &in, &out);
-	delete c_switches; // done with switches
 
 	if( out.numberoftetrahedra == 0 || out.numberofpoints == 0 )
     {

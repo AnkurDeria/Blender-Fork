@@ -309,21 +309,13 @@ static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh,
   bool success = tetgen_resmesh(&tg);
 
   MEM_freeN(verts);
+  verts = NULL;
+  tg.in_verts = NULL;
   MEM_freeN(faces);
+  faces = NULL;
+  tg.in_faces = NULL;
   MEM_freeN(verttri);
-
-{
-    if (tg.out_verts)
-    MEM_freeN(tg.out_verts);
-
-  if (tg.out_facets)
-    MEM_freeN(tg.out_facets);
-
-  if (tg.out_tets)
-    MEM_freeN(tg.out_tets);
-    
-  return NULL;
-}
+  verttri = NULL;
 
   Mesh *mesh = NULL;
   if (success)
@@ -349,20 +341,29 @@ static Mesh *BKE_mesh_remesh_tetgen(Mesh *input_mesh,
     BKE_mesh_calc_normals(mesh);
 
     *numtets = tg.out_tottets;
-    //*tets = (unsigned int *)MEM_malloc_arrayN(tg.out_tottets*4, sizeof(unsigned int), "remesh_output_tets");
-    *tets = (unsigned int *)malloc(tg.out_tottets*4*sizeof(unsigned int));
+    *tets = (unsigned int *)MEM_malloc_arrayN(tg.out_tottets*4, sizeof(unsigned int), "remesh_output_tets");
+    //*tets = (unsigned int *)malloc(tg.out_tottets*4*sizeof(unsigned int));
     memcpy(*tets,tg.out_tets,tg.out_tottets*4*sizeof(unsigned int));
 
   } // end success
 
-  if (tg.out_verts)
+  if (tg.out_verts != NULL)
+  {
     MEM_freeN(tg.out_verts);
+    tg.out_verts = NULL;
+  }
 
-  if (tg.out_facets)
+  if (tg.out_facets != NULL)
+  {
     MEM_freeN(tg.out_facets);
+    tg.out_facets = NULL;
+  }
 
-  if (tg.out_tets)
+  if (tg.out_tets != NULL)
+  {
     MEM_freeN(tg.out_tets);
+    tg.out_tets = NULL;
+  }
 
   return mesh;
 }

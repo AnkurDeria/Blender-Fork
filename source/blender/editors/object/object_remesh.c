@@ -1188,7 +1188,7 @@ static int tetgen_remesh_exec(bContext *C, wmOperator *op)
   Mesh *mesh = ob->data;
   Mesh *new_mesh = NULL;
 
-  unsigned int *tets;
+  unsigned int *tets = NULL;
   int numtets;
   new_mesh = BKE_mesh_remesh_tetgen_to_mesh_nomain(mesh,&tets,&numtets);
   if (tets) {
