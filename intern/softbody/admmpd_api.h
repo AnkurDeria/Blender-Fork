@@ -29,39 +29,39 @@ extern "C" {
 #endif
 
 typedef struct ADMMPDInterfaceData {
-    float *in_verts;
-    float *in_vel;
-    unsigned int *in_faces;
-    int in_totfaces;
-    int in_totverts;
-    // Num output verts might be different than num input verts.
+    // totverts is usually different than mesh_totverts.
     // This is due to the lattice/tetmesh that is generated
     // in init. You can use them as input if reading from cache,
     // as they will be copied to internal solver data before admmpd_solve.
-    float *out_verts;
-    float *out_vel;
-    int out_totverts;
+    int totverts; // number of deformable verts (output)
+    int mesh_totverts; // number of surface mesh vertices (input)
+    int mesh_totfaces; // number of surface mesh faces (input)
     // Solver data used internally
     struct ADMMPDInternalData *data;
 } ADMMPDInterfaceData;
 
-// Allocates ADMMPDInterfaceData, using in_totfaces and in_totverts.
-// Does not allocate solver data, which is created on admmpd_init
-void admmpd_alloc(ADMMPDInterfaceData*);
+// SoftBody bodypoint (contains pos,vec)
+typedef struct BodyPoint BodyPoint;
 
 // Clears all solver data and ADMMPDInterfaceData
 void admmpd_dealloc(ADMMPDInterfaceData*);
 
 // Initializes solver and allocates internal data
-int admmpd_init(ADMMPDInterfaceData*);
+int admmpd_init(ADMMPDInterfaceData*, float *in_verts, unsigned int *in_faces);
+
+// Copies BodyPoint data (from SoftBody)
+// to internal vertex position and velocity
+void admmpd_copy_from_bodypoint(ADMMPDInterfaceData*, const BodyPoint *pts);
+
+// Copies internal vertex position and velocity data
+// to BodyPoints (from SoftBody) AND surface mesh vertices.
+// If pts or vertexCos is null, its skipped
+void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData*, BodyPoint *pts, float (*vertexCos)[3]);
 
 // Copies out_verts and out_verts to internal data
 // Performs solve over the time step
 // Copies internal data to out_verts and out_vel
 void admmpd_solve(ADMMPDInterfaceData*);
-
-// Copies ADMMPDInterfaceData::out_ to vertexCos
-void admmpd_get_vertices(ADMMPDInterfaceData*, float (*vertexCos)[3], int numVerts); 
 
 #ifdef __cplusplus
 }

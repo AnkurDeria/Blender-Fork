@@ -101,14 +101,14 @@ static void make_tetgenio(
 bool tetgen_resmesh(TetGenRemeshData *tg)
 {
 //	float maxvol = compute_maxvol(tg->in_verts, tg->in_faces, tg->in_totfaces);
-//    float quality = 1.4;
+    float quality = 1.4;
 
 	// Set up the switches
 	std::stringstream switches;
 //	switches << "Q"; // quiet
 //    switches << "a" << maxvol;
-//	if (quality>0)
-//        switches << "q" << quality;
+	if (quality>0)
+        switches << "q" << quality;
 
 
     tetgenio in;
