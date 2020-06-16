@@ -94,7 +94,7 @@ int EnergyTerm::init_tet(
 	volume = edges.determinant() / 6.0f;
 	if( volume < 0 )
 	{
-		printf("**EnergyTerm::init_tet: Inverted initial tet");
+		printf("**admmpd::EnergyTerm Error: Inverted initial tet: %f\n",volume);
 		return 0;
 	}
 	double k = lame.m_bulk_mod;

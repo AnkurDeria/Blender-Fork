@@ -949,7 +949,7 @@ static void free_softbody_intern(SoftBody *sb)
     sb->bpoint = NULL;
     sb->bspring = NULL;
 
-    if (sb->admmpd) {
+    if (sb->admmpd != NULL) {
       admmpd_dealloc(sb->admmpd);
       MEM_freeN(sb->admmpd);
       sb->admmpd = NULL;
@@ -3579,6 +3579,12 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
   Mesh *me = ob->data;
   SoftBody *sb = ob->soft;
 
+  if (sb->admmpd != NULL)
+  {
+    admmpd_dealloc(sb->admmpd);
+    MEM_freeN(sb->admmpd);
+    sb->admmpd = NULL;
+  }
   sb->admmpd = (ADMMPDInterfaceData*)MEM_callocN(sizeof(ADMMPDInterfaceData), "SoftBody_ADMMPD");
 
   // Resize data
@@ -3615,6 +3621,7 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
   looptri = NULL;
 
   // Initalize solver and free tmp data
+  sb->admmpd->init_mode = 1;
   admmpd_init(sb->admmpd, in_verts, in_faces);
   MEM_freeN(in_verts);
   MEM_freeN(in_faces);
@@ -3686,7 +3693,7 @@ void sbObjectStep_admmpd(
   }
 
   // If it's the first frame we reset the cache and data
-  if (framenr == startframe) {
+  if (framenr == startframe || sb->admmpd == NULL) {
     BKE_ptcache_id_reset(scene, &pid, PTCACHE_RESET_OUTDATED);
     init_admmpd_interface(ob,vertexCos);
     BKE_ptcache_validate(cache, framenr);
@@ -3694,13 +3701,6 @@ void sbObjectStep_admmpd(
     sb->last_frame = framenr;
     sbStoreLastFrame(depsgraph, ob, framenr);
     return;
-  }
-
-  // Initialize simulation data if needed.
-  if (sb->admmpd == NULL)
-  {
-    printf("\n\n\n\n\n**ADMMPD data null!\n\n\n\n\n");
-    return;    
   }
 
   // Read from cache

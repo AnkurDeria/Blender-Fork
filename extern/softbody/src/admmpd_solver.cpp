@@ -32,9 +32,16 @@ bool Solver::init(
 	if (!data || !options)
 		throw std::runtime_error("init: data/options null");
 
+	if (V.rows()==0)
+		throw std::runtime_error("init: no input vertices");
+
 	data->x = V;
+	data->v.resize(V.rows(),3);
+	data->v.setZero();
 	data->tets = T;
-	compute_matrices(options,data);
+	if (!compute_matrices(options,data))
+		return false;
+
 	return true;
 } // end init
 
@@ -42,6 +49,8 @@ int Solver::solve(
 	const Options *options,
 	Data *data)
 {
+	if ((int)data->A.nonZeros()==0)
+		return 0;
 
 	// Init the solve which computes
 	// quantaties like M_xbar and makes sure
@@ -276,12 +285,15 @@ void Solver::solve_conjugate_gradients(
 
 } // end solve conjugate gradients
 
-void Solver::compute_matrices(
+bool Solver::compute_matrices(
 	const Options *options,
 	Data *data)
 {
 	// Allocate per-vertex data
 	int nx = data->x.rows();
+	if (nx==0)
+		return false;
+
 	data->x_start = data->x;
 	data->M_xbar.resize(nx,3);
 	data->M_xbar.setZero();
@@ -298,6 +310,11 @@ void Solver::compute_matrices(
 	// Add per-element energies to data
 	std::vector<Triplet<double> > trips;
 	append_energies(options,data,trips);
+	if (trips.size()==0)
+	{
+		printf("**admmpd::Solver Error: No reduction coeffs\n");
+		return false;
+	}
 	int n_row_D = trips.back().row()+1;
 	double dt2 = options->timestep_s * options->timestep_s;
 	if (options->timestep_s <= 0)
@@ -337,6 +354,8 @@ void Solver::compute_matrices(
 	data->z.setZero();
 	data->u.resize(n_row_D,3);
 	data->u.setZero();
+
+	return true;
 
 } // end compute matrices
 

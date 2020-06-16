@@ -4,6 +4,7 @@
 #include "admmpd_lattice.h"
 #include "admmpd_math.h"
 #include <iostream>
+#include <unordered_map>
 
 //#include "vdb.h"
 
@@ -52,94 +53,114 @@ inline void map_to_x4i(const std::vector<Vector4i> &x_vec, Eigen::MatrixXi *x)
 
 bool Lattice::generate(
 	const Eigen::MatrixXd &V,
-    Eigen::MatrixXd *x, // lattice vertices, n x 3
-    Eigen::MatrixXi *tets) // lattice elements, m x 4
+    Eigen::MatrixXd *X, // lattice vertices, n x 3
+    Eigen::MatrixXi *T) // lattice elements, m x 4
 {
-	// All vertices enclosed in 5 tets!
-	// Will generate actual lattice in the future.
-	AlignedBox<double,3> box;
-	vtx = V;
-	int nv = vtx.rows();
-	for (int i=0; i<nv; ++i)
+	AlignedBox<double,3> aabb;
+	int nv = V.rows();
+	for(int i=0; i<nv; ++i)
+		aabb.extend(V.row(i).transpose());
+	
+	aabb.extend(aabb.min()-Vector3d::Ones()*1e-6);
+	aabb.extend(aabb.max()+Vector3d::Ones()*1e-6);
+	Vector3d mesh_boxmin = aabb.min();
+	Vector3d sizes = aabb.sizes();
+	double grid_dx = sizes.maxCoeff() * 0.2;
+
+	// Generate vertices and tets
+	std::vector<Vector3d> verts;
+	std::vector<Vector4i> tets;
 	{
-		Vector3d v = vtx.row(i);
-		box.extend(v);
+		std::unordered_map<std::string, int> vertex_map; // [i,j,k]->index
+
+		auto grid_hash = [&](const Vector3d &x)
+		{
+			Vector3i ll = Vector3i( // nearest gridcell
+				std::round((x[0]-mesh_boxmin[0])/grid_dx),
+				std::round((x[1]-mesh_boxmin[1])/grid_dx),
+				std::round((x[2]-mesh_boxmin[2])/grid_dx));
+			return std::to_string(ll[0])+' '+std::to_string(ll[1])+' '+std::to_string(ll[2]);
+		};
+
+		auto add_box = [&](int i_, int j_, int k_)
+		{
+			Vector3d min = mesh_boxmin + Vector3d(i_*grid_dx, j_*grid_dx, k_*grid_dx);
+			Vector3d max = mesh_boxmin + Vector3d((i_+1)*grid_dx, (j_+1)*grid_dx, (k_+1)*grid_dx);
+			std::vector<Vector3d> v = {
+				// Top plane, clockwise looking down
+				max,
+				Vector3d(min[0], max[1], max[2]),
+				Vector3d(min[0], max[1], min[2]),
+				Vector3d(max[0], max[1], min[2]),
+				// Bottom plan, clockwise looking down
+				Vector3d(max[0], min[1], max[2]),
+				Vector3d(min[0], min[1], max[2]),
+				min,
+				Vector3d(max[0], min[1], min[2])
+			};
+			// Add vertices and get indices of the box
+			std::vector<int> b;
+			for(int i=0; i<8; ++i)
+			{
+				std::string hash = grid_hash(v[i]);
+				if( vertex_map.count(hash)==0 )
+				{
+					vertex_map[hash] = verts.size();
+					verts.emplace_back(v[i]);
+				}
+				b.emplace_back(vertex_map[hash]);
+			}
+			// From the box, create five new tets
+			std::vector<Vector4i> new_tets = {
+				Vector4i( b[0], b[5], b[7], b[4] ),
+				Vector4i( b[5], b[7], b[2], b[0] ),
+				Vector4i( b[5], b[0], b[2], b[1] ),
+				Vector4i( b[7], b[2], b[0], b[3] ),
+				Vector4i( b[5], b[2], b[7], b[6] )
+			};
+			for(int i=0; i<5; ++i)
+				tets.emplace_back(new_tets[i]);
+		};
+
+		int ni = std::ceil(sizes[0]/grid_dx);
+		int nj = std::ceil(sizes[1]/grid_dx);
+		int nk = std::ceil(sizes[2]/grid_dx);
+		for(int i=0; i<ni; ++i)
+		{
+			for(int j=0; j<nj; ++j)
+			{
+				for(int k=0; k<nk; ++k)
+				{
+					add_box(i,j,k);
+				}
+			}
+		}
+
+	} // end create boxes and vertices
+
+	// Copy data into matrices
+	{
+		nv = verts.size();
+		X->resize(nv,3);
+		for(int i=0; i<nv; ++i){
+			for(int j=0; j<3; ++j){
+				X->operator()(i,j) = verts[i][j];
+			}
+		}
+		int nt = tets.size();
+		T->resize(nt,4);
+		for(int i=0; i<nt; ++i){
+			for(int j=0; j<4; ++j){
+				T->operator()(i,j) = tets[i][j];
+			}
+		}
 	}
-	box.extend(box.min() - Vector3d::Ones() * 1e-12);
-	box.extend(box.max() + Vector3d::Ones() * 1e-12);
 
-	std::vector<Vector3d> x_vec;
-	std::vector<Vector4i> t_vec;
-	create_packed_tets(box.min(),box.max(),x_vec,t_vec);
-
-	// Copy vector data to output
-	map_to_x3d(x_vec, x);
-	map_to_x4i(t_vec, tets);
-	return compute_vtx_tet_mapping(&vtx, &vtx_to_tet, &barys, x, tets);
+	return compute_vtx_tet_mapping(
+		&V, &vtx_to_tet, &barys,
+		X, T);
 
 } // end gen lattice
-
-//
-// Original source (BSD-2):
-// github.com/mattoverby/mclscene/blob/master/include/MCL/EmbeddedMesh.hpp
-//
-void Lattice::create_packed_tets(
-	const Eigen::Vector3d &min,
-	const Eigen::Vector3d &max,
-	std::vector<Vector3d> &verts,
-	std::vector<Vector4i> &tets )
-{
-
-	// Top plane, clockwise looking down
-	Vector3d a = max;
-	Vector3d b( min[0], max[1], max[2] );
-	Vector3d c( min[0], max[1], min[2] );
-	Vector3d d( max[0], max[1], min[2] );
-
-	// Bottom plan, clockwise looking down
-	Vector3d e( max[0], min[1], max[2] );
-	Vector3d f( min[0], min[1], max[2] );
-	Vector3d g( min[0], min[1], min[2] );
-	Vector3d h( max[0], min[1], min[2] );
-
-	// Add the verts
-	int nv = verts.size();
-	verts.emplace_back( a ); // 0
-	verts.emplace_back( b ); // 1
-	verts.emplace_back( c ); // 2
-	verts.emplace_back( d ); // 3
-	verts.emplace_back( e ); // 4
-	verts.emplace_back( f ); // 5
-	verts.emplace_back( g ); // 6
-	verts.emplace_back( h ); // 7
-
-	// Pack 5 tets into the cube
-	Vector4i t0( 0, 5, 7, 4 );
-	Vector4i t1( 5, 7, 2, 0 );
-	Vector4i t2( 5, 0, 2, 1 );
-	Vector4i t3( 7, 2, 0, 3 );
-	Vector4i t4( 5, 2, 7, 6 );
-	Vector4i offset(nv,nv,nv,nv);
-
-	// Add the tets
-	tets.emplace_back( t0+offset );
-	tets.emplace_back( t1+offset );
-	tets.emplace_back( t2+offset );
-	tets.emplace_back( t3+offset );
-	tets.emplace_back( t4+offset );
-
-//vdb_point(a[0],a[1],a[2]);
-//vdb_point(b[0],b[1],b[2]);
-//vdb_point(c[0],c[1],c[2]);
-//vdb_point(d[0],d[1],d[2]);
-//vdb_point(e[0],e[1],e[2]);
-//vdb_point(f[0],f[1],f[2]);
-//vdb_point(g[0],g[1],g[2]);
-//vdb_point(h[0],h[1],h[2]);
-//vdb_line(float x0, float y0, float z0, 
-//             float x1, float y1, float z1);
-
-} // end create packed tets
 
 bool Lattice::compute_vtx_tet_mapping(
 	const Eigen::MatrixXd *vtx_, // embedded vertices, p x 3
@@ -204,27 +225,5 @@ Eigen::Vector3d Lattice::get_mapped_vertex(
 		x_or_v->row(tet[2]) * b[2] +
 		x_or_v->row(tet[3]) * b[3]);
 }
-/*
-void Lattice::map_to_object(
-	const Eigen::MatrixXd *x,
-	const Eigen::MatrixXi *tets,
-	float (*vertexCos)[3])
-{
-  int nv = vtx.rows();
-  for (int i=0; i<nv; ++i)
-  {
-    int t_idx = vtx_to_tet[i];
-    RowVector4i tet = tets->row(t_idx);
-    RowVector4d b = barys.row(i);
-    vtx.row(i) =
-		x->row(tet[0]) * b[0] +
-		x->row(tet[1]) * b[1] +
-		x->row(tet[2]) * b[2] +
-		x->row(tet[3]) * b[3];
-	vertexCos[i][0] = vtx(i,0);
-	vertexCos[i][1] = vtx(i,1);
-	vertexCos[i][2] = vtx(i,2);
-  }
-} // end map to object
-*/
+
 } // namespace admmpd

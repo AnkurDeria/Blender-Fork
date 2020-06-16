@@ -107,11 +107,7 @@ protected:
         const Options *options,
         Data *data);
 
-    void compute_lattice(
-        const Options *options,
-        Data *data);
-
-    void compute_matrices(
+    bool compute_matrices(
         const Options *options,
         Data *data);
 

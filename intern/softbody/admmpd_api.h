@@ -36,6 +36,7 @@ typedef struct ADMMPDInterfaceData {
     int totverts; // number of deformable verts (output)
     int mesh_totverts; // number of surface mesh vertices (input)
     int mesh_totfaces; // number of surface mesh faces (input)
+    int init_mode; // 0=tetgen, 1=lattice
     // Solver data used internally
     struct ADMMPDInternalData *data;
 } ADMMPDInterfaceData;
