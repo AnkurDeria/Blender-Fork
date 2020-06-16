@@ -13,7 +13,7 @@
 #include <iostream>
 
 #include "BLI_task.h" // threading
-#include "BLI_assert.h" // assert
+#include "BLI_assert.h"
 
 namespace admmpd {
 using namespace Eigen;
@@ -31,11 +31,11 @@ bool Solver::init(
     Data *data)
 {
 	BLI_assert(data != NULL);
-	if (!data || !options)
-		throw std::runtime_error("init: data/options null");
-
-	if (V.rows()==0)
-		throw std::runtime_error("init: no input vertices");
+	BLI_assert(options != NULL);
+	BLI_assert(V.rows() > 0);
+	BLI_assert(V.cols() == 3);
+	BLI_assert(T.rows() > 0);
+	BLI_assert(T.cols() == 4);
 
 	data->x = V;
 	data->v.resize(V.rows(),3);
@@ -51,8 +51,12 @@ int Solver::solve(
 	const Options *options,
 	Data *data)
 {
-	if ((int)data->A.nonZeros()==0)
-		return 0;
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
+	BLI_assert(data->x.cols() == 3);
+	BLI_assert(data->x.rows() > 0);
+	BLI_assert(data->A.nonZeros() > 0);
+	BLI_assert(options->max_admm_iters > 0);
 
 	// Init the solve which computes
 	// quantaties like M_xbar and makes sure
@@ -87,7 +91,11 @@ void Solver::init_solve(
 	const Options *options,
 	Data *data)
 {
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
 	int nx = data->x.rows();
+	BLI_assert(nx > 0);
+
 	if (data->M_xbar.rows() != nx)
 		data->M_xbar.resize(nx,3);
 
@@ -132,7 +140,10 @@ void Solver::solve_local_step(
 	const Options *options,
 	Data *data)
 {
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
 	int ne = data->rest_volumes.size();
+	BLI_assert(ne > 0);
   	ThreadData thread_data = {.options=options, .data = data};
 	TaskParallelSettings settings;
 	BLI_parallel_range_settings_defaults(&settings);
@@ -143,6 +154,9 @@ void Solver::update_constraints(
 	const Options *options,
 	Data *data)
 {
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
+
 	std::vector<double> l_coeffs;
 	std::vector<Eigen::Triplet<double> > trips_x;
     std::vector<Eigen::Triplet<double> > trips_y;
@@ -199,6 +213,21 @@ void Solver::solve_conjugate_gradients(
 	const Options *options,
 	Data *data)
 {
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
+	int nx = data->x.rows();
+	BLI_assert(nx > 0);
+	BLI_assert(data->b.rows() == nx);
+	BLI_assert(data->A.rows() == nx);
+	BLI_assert(data->A.cols() == nx);
+	BLI_assert(data->K[0].cols() == nx);
+	BLI_assert(data->K[1].cols() == nx);
+	BLI_assert(data->K[2].cols() == nx);
+	BLI_assert(data->l.rows() > 0);
+	BLI_assert(data->K[0].rows() == data->l.rows());
+	BLI_assert(data->K[1].rows() == data->l.rows());
+	BLI_assert(data->K[2].rows() == data->l.rows());
+
 	// Solve Ax = b in parallel
 	auto solve_Ax_b = [](
 		Data *data_,
@@ -241,13 +270,12 @@ void Solver::solve_conjugate_gradients(
 	admmpd::Data::CGData *cgdata = &data->cgdata;
 	double eps = options->min_res;
 	cgdata->b = data->b;
-	int nv = data->b.rows();
-	if (cgdata->r.rows() !=nv)
+	if (cgdata->r.rows() != nx)
 	{
-		cgdata->r.resize(nv,3);
-		cgdata->z.resize(nv,3);
-		cgdata->p.resize(nv,3);
-		cgdata->Ap.resize(nv,3);
+		cgdata->r.resize(nx,3);
+		cgdata->z.resize(nx,3);
+		cgdata->p.resize(nx,3);
+		cgdata->Ap.resize(nx,3);
 	}
 
 	for (int i=0; i<3; ++i)
@@ -290,11 +318,13 @@ bool Solver::compute_matrices(
 	const Options *options,
 	Data *data)
 {
-	// Allocate per-vertex data
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
 	int nx = data->x.rows();
-	if (nx==0)
-		return false;
+	BLI_assert(nx > 0);
+	BLI_assert(data->x.cols() == 3);
 
+	// Allocate per-vertex data
 	data->x_start = data->x;
 	data->M_xbar.resize(nx,3);
 	data->M_xbar.setZero();
@@ -364,6 +394,9 @@ void Solver::compute_masses(
 	const Options *options,
 	Data *data)
 {
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
+
 	// Source: https://github.com/mattoverby/mclscene/blob/master/include/MCL/TetMesh.hpp
 	// Computes volume-weighted masses for each vertex
 	// density_kgm3 is the unit-volume density
@@ -392,9 +425,10 @@ void Solver::append_energies(
 	Data *data,
 	std::vector<Triplet<double> > &D_triplets)
 {
+	BLI_assert(data != NULL);
+	BLI_assert(options != NULL);
 	int nt = data->tets.rows();
-	if (nt==0)
-		return;
+	BLI_assert(nt > 0);
 
 	data->indices.reserve(nt);
 	data->rest_volumes.reserve(nt);
