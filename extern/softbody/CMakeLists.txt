@@ -24,7 +24,7 @@ set(INC
 
 set(INC_SYS
   ${EIGEN3_INCLUDE_DIRS}
-  ../../source/blender/blenlib
+  ../../source/blender/blenlib # BLI_task for threading
 )
 
 set(SRC
@@ -38,6 +38,10 @@ set(SRC
   src/admmpd_solver.cpp
   src/admmpd_collision.h
   src/admmpd_collision.cpp
+  src/admmpd_bvh.h
+  src/admmpd_bvh.cpp
+  src/admmpd_bvh_traverse.h
+  src/admmpd_bvh_traverse.cpp
 )
 
 set(LIB

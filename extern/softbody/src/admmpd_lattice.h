@@ -1,8 +1,8 @@
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
-
-
-#ifndef _ADMMPD_LATTICE_H
-#define _ADMMPD_LATTICE_H
+#ifndef ADMMPD_LATTICE_H_
+#define ADMMPD_LATTICE_H_
 
 #include <Eigen/Dense>
 #include <vector>
@@ -40,4 +40,4 @@ protected:
 
 } // namespace admmpd
 
-#endif // _ADMMPD_LATTICE_H
+#endif // ADMMPD_LATTICE_H_

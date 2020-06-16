@@ -1,8 +1,8 @@
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
-
-
-#ifndef _ADMMPD_ENERGY_H
-#define _ADMMPD_ENERGY_H 1
+#ifndef ADMMPD_ENERGY_H_
+#define ADMMPD_ENERGY_H_ 1
 
 #include <Eigen/Sparse>
 #include <Eigen/Geometry>
@@ -54,7 +54,7 @@ public:
 
 } // end namespace admmpd
 
-#endif // _ADMMPD_ENERGY_H
+#endif // ADMMPD_ENERGY_H_
 
 
 

@@ -1,55 +1,17 @@
-
-
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
 #include "admmpd_lattice.h"
 #include "admmpd_math.h"
+#include "admmpd_bvh.h"
+#include "admmpd_bvh_traverse.h"
 #include <iostream>
 #include <unordered_map>
-
-//#include "vdb.h"
+#include "BLI_task.h" // threading
 
 namespace admmpd {
 using namespace Eigen;
 
-// We store our deformable data in column major to make
-// matrix-vector mults and solves faster, but we want
-// to map raw data as row major.
-inline void map_to_x3d(const std::vector<Vector3d> &x_vec, Eigen::MatrixXd *x)
-{
-	int nx = x_vec.size();
-	if (nx==0)
-	{
-		*x = MatrixXd();
-		return;
-	}
-
-	x->resize(nx,3);
-	for (int i=0; i<nx; ++i)
-	{
-		x->operator()(i,0) = x_vec[i][0];
-		x->operator()(i,1) = x_vec[i][1];
-		x->operator()(i,2) = x_vec[i][2];
-	}
-}
-
-inline void map_to_x4i(const std::vector<Vector4i> &x_vec, Eigen::MatrixXi *x)
-{
-	int nx = x_vec.size();
-	if (nx==0)
-	{
-		*x = MatrixXi();
-		return;
-	}
-
-	x->resize(nx,4);
-	for (int i=0; i<nx; ++i)
-	{
-		x->operator()(i,0) = x_vec[i][0];
-		x->operator()(i,1) = x_vec[i][1];
-		x->operator()(i,2) = x_vec[i][2];
-		x->operator()(i,3) = x_vec[i][3];
-	}
-}
 
 bool Lattice::generate(
 	const Eigen::MatrixXd &V,
@@ -162,6 +124,40 @@ bool Lattice::generate(
 
 } // end gen lattice
 
+typedef struct FindTetThreadData {
+	AABBTree<double,3> *tree;
+	const MatrixXd *pts;
+	VectorXi *pts_to_tet;
+	MatrixXd *barys;
+	const MatrixXd *tet_x;
+	const MatrixXi *tets;
+} FindTetThreadData;
+
+static void parallel_point_in_tet(
+	void *__restrict userdata,
+	const int i,
+	const TaskParallelTLS *__restrict UNUSED(tls))
+{
+	FindTetThreadData *td = (FindTetThreadData*)userdata;
+	Vector3d pt = td->pts->row(i);
+	PointInTetTraverse<double> traverser(pt, td->tet_x, td->tets);
+	bool success = td->tree->traverse(traverser);
+	int tet_idx = traverser.output.prim;
+	if (success && tet_idx >= 0)
+	{
+		RowVector4i tet = td->tets->row(tet_idx);
+		Vector3d t[4] = {
+			td->tet_x->row(tet[0]),
+			td->tet_x->row(tet[1]),
+			td->tet_x->row(tet[2]),
+			td->tet_x->row(tet[3])
+		};
+		td->pts_to_tet->operator[](i) = tet_idx;
+		Vector4d b = barycoords::point_tet(pt,t[0],t[1],t[2],t[3]);
+		td->barys->row(i) = b;
+	}
+} // end parallel lin solve
+
 bool Lattice::compute_vtx_tet_mapping(
 	const Eigen::MatrixXd *vtx_, // embedded vertices, p x 3
 	Eigen::VectorXi *vtx_to_tet_, // what tet vtx is embedded in, p x 1
@@ -176,34 +172,59 @@ bool Lattice::compute_vtx_tet_mapping(
 	if (nv==0)
 		return false;
 
-	// TODO:
-	// Use AABB Tree to do point-in-tet and compute bary weighting
-	// For now the dumb approach and loop all.
-
 	barys_->resize(nv,4);
-	barys_->setZero();
+	barys_->setOnes();
 	vtx_to_tet_->resize(nv);
 	int nt = tets_->rows();
 
+	// BVH tree for finding point-in-tet and computing
+	// barycoords for each embedded vertex
+	std::vector<AlignedBox<double,3> > tet_aabbs;
+	tet_aabbs.resize(nt);
+	for (int i=0; i<nt; ++i)
+	{
+		tet_aabbs[i].setEmpty();
+		RowVector4i tet = tets_->row(i);
+		for (int j=0; j<4; ++j)
+		{
+			tet_aabbs[i].extend(x_->row(tet[j]).transpose());
+		}
+	}
+
+	AABBTree<double,3> tree;
+	tree.init(tet_aabbs);
+
+	FindTetThreadData thread_data = {
+		.tree = &tree,
+		.pts = vtx_,
+		.pts_to_tet = vtx_to_tet_,
+		.barys = barys_,
+		.tet_x = x_,
+		.tets = tets_
+	};
+	TaskParallelSettings settings;
+	BLI_parallel_range_settings_defaults(&settings);
+	BLI_task_parallel_range(0, nv, &thread_data, parallel_point_in_tet, &settings);
+
+	// Double check we set (valid) barycoords for every embedded vertex
+	const double eps = 1e-8;
 	for (int i=0; i<nv; ++i)
 	{
-		Vector3d v = vtx_->row(i);
-		for (int j=0; j<nt; ++j)
+		RowVector4d b = barys_->row(i);
+		if (b.minCoeff() < -eps)
 		{
-			RowVector4i tet = tets_->row(j);
-			Vector3d t[4] = {
-				x_->row(tet[0]),
-				x_->row(tet[1]),
-				x_->row(tet[2]),
-				x_->row(tet[3])
-			};
-			if (!barycoords::point_in_tet(v,t[0],t[1],t[2],t[3]))
-				continue;
-
-			Vector4d b = barycoords::point_tet(v,t[0],t[1],t[2],t[3]);
-			vtx_to_tet_->operator[](i) = j;
-			barys_->row(i) = b;
-			break;
+			printf("**Lattice::generate Error: negative barycoords\n");
+			return false;
+		}
+		if (b.maxCoeff() > 1 + eps)
+		{
+			printf("**Lattice::generate Error: max barycoord > 1\n");
+			return false;
+		}
+		if (b.sum() > 1 + eps)
+		{
+			printf("**Lattice::generate Error: barycoord sum > 1\n");
+			return false;
 		}
 	}
 

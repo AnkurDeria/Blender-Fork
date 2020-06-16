@@ -1,5 +1,5 @@
-
-
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
 #include "admmpd_solver.h"
 #include "admmpd_lattice.h"
@@ -141,7 +141,6 @@ void Solver::update_constraints(
 	const Options *options,
 	Data *data)
 {
-
 	std::vector<double> l_coeffs;
 	std::vector<Eigen::Triplet<double> > trips_x;
     std::vector<Eigen::Triplet<double> > trips_y;
@@ -181,8 +180,8 @@ void Solver::update_constraints(
 
 typedef struct LinSolveThreadData {
 	Data *data;
-	MatrixXd *x;
-	MatrixXd *b;
+	MatrixXd *ls_x;
+	MatrixXd *ls_b;
 } LinSolveThreadData;
 
 static void parallel_lin_solve(
@@ -191,7 +190,7 @@ static void parallel_lin_solve(
 	const TaskParallelTLS *__restrict UNUSED(tls))
 {
 	LinSolveThreadData *td = (LinSolveThreadData*)userdata;
-	td->x->col(i) = td->data->ldltA.solve(td->b->col(i));
+	td->ls_x->col(i) = td->data->ldltA.solve(td->ls_b->col(i));
 } // end parallel lin solve
 
 void Solver::solve_conjugate_gradients(
@@ -204,7 +203,7 @@ void Solver::solve_conjugate_gradients(
 		MatrixXd *x_,
 		MatrixXd *b_)
 	{
-		LinSolveThreadData thread_data = {.data=data_, .x=x_, .b=b_};
+		LinSolveThreadData thread_data = {.data=data_, .ls_x=x_, .ls_b=b_};
 		TaskParallelSettings settings;
 		BLI_parallel_range_settings_defaults(&settings);
 		BLI_task_parallel_range(0, 3, &thread_data, parallel_lin_solve, &settings);
@@ -427,6 +426,7 @@ void Solver::append_energies(
 		data->indices.emplace_back(energy_index, energy_dim);
 		energy_index += energy_dim;
 	}
+
 } // end append energies
 
 } // namespace admmpd

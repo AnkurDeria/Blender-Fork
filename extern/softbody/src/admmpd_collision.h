@@ -1,8 +1,8 @@
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
-
-
-#ifndef _ADMMPD_COLLISION_H
-#define _ADMMPD_COLLISION_H
+#ifndef ADMMPD_COLLISION_H_
+#define ADMMPD_COLLISION_H_
 
 #include <Eigen/Sparse>
 #include <vector>
@@ -39,4 +39,4 @@ public:
 
 } // namespace admmpd
 
-#endif //_ADMMPD_COLLISION_H
+#endif // ADMMPD_COLLISION_H_

@@ -1,8 +1,8 @@
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
-
-
-#ifndef _ADMMPD_H
-#define _ADMMPD_H
+#ifndef ADMMPD_SOLVER_H_
+#define ADMMPD_SOLVER_H_
 
 #include <Eigen/Geometry>
 #include <Eigen/Sparse>
@@ -124,4 +124,4 @@ protected:
 
 } // namespace admmpd
 
-#endif // _ADMMPD_H
+#endif // ADMMPD_SOLVER_H_

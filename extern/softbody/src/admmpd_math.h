@@ -1,8 +1,8 @@
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
-
-
-#ifndef _ADMMPD_MATH_H
-#define _ADMMPD_MATH_H
+#ifndef ADMMPD_MATH_H_
+#define ADMMPD_MATH_H_
 
 #include <Eigen/Geometry>
 
@@ -16,6 +16,8 @@ Eigen::Vector4d point_tet(
     const Eigen::Vector3d &c,
     const Eigen::Vector3d &d);
 
+} // namespace barycoords
+
 bool point_in_tet(
     const Eigen::Vector3d &p,
     const Eigen::Vector3d &a,
@@ -23,8 +25,6 @@ bool point_in_tet(
     const Eigen::Vector3d &c,
     const Eigen::Vector3d &d);
 
-} // namespace barycoords
-
 } // namespace admmpd
 
-#endif //_ADMMPD_MATH_H
+#endif // ADMMPD_MATH_H_

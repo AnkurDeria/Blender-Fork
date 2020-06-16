@@ -1,5 +1,5 @@
-
-
+// Copyright Matt Overby 2020.
+// Distributed under the MIT License.
 
 #include "admmpd_energy.h"
 #include <iostream>
