@@ -940,7 +940,6 @@ static void free_softbody_intern(SoftBody *sb)
       MEM_freeN(sb->bpoint);
       sb->bpoint = NULL;
     }
-
     if (sb->bspring) {
       MEM_freeN(sb->bspring);
     }
@@ -3089,10 +3088,6 @@ static void softbody_to_object(Object *ob, float (*vertexCos)[3], int numVerts, 
   SoftBody *sb = ob->soft;
   if (sb) {
     int sb_totpt = sb->totpoint;
-    if(sb_totpt < numVerts)
-    {
-      printf("\n\n\n\nsoftbody_to_object ERROR: BAD SIZE TOTPOINT\n\n\n\n\n");
-    }
 
     BodyPoint *bp = sb->bpoint;
     int a;
@@ -3589,8 +3584,8 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
 
   // Resize data
   int totfaces = poly_to_tri_count(me->totpoly, me->totloop);
-  unsigned int *in_faces = (unsigned int*)MEM_mallocN(sizeof(unsigned int)*totfaces*3, __func__);
-  float *in_verts = (float*)MEM_mallocN(sizeof(float)*me->totvert*3, __func__);
+  unsigned int *in_faces = (unsigned int*)MEM_callocN(sizeof(unsigned int)*totfaces*3, __func__);
+  float *in_verts = (float*)MEM_callocN(sizeof(float)*me->totvert*3, __func__);
   sb->admmpd->mesh_totverts = me->totvert;
   sb->admmpd->mesh_totfaces = totfaces;
 
@@ -3609,7 +3604,7 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
 
   // Initialize input faces
   MLoopTri *looptri, *lt;
-  looptri = lt = (MLoopTri *)MEM_mallocN(sizeof(*looptri)*totfaces, __func__);
+  looptri = lt = (MLoopTri *)MEM_callocN(sizeof(*looptri)*totfaces, __func__);
   BKE_mesh_recalc_looptri(me->mloop, me->mpoly, me->mvert, me->totloop, me->totpoly, looptri);
   for (int i=0; i<totfaces; ++i, ++lt)
   {
@@ -3635,7 +3630,7 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
     }
     sb->totpoint = sb->admmpd->totverts;
     sb->totspring = 0;
-    sb->bpoint = MEM_mallocN(sb->totpoint * sizeof(BodyPoint), "bodypoint");
+    sb->bpoint = MEM_callocN(sb->totpoint * sizeof(BodyPoint), "bodypoint");
   }
 
   admmpd_copy_to_bodypoint_and_object(sb->admmpd,sb->bpoint,NULL);
@@ -3714,7 +3709,10 @@ void sbObjectStep_admmpd(
     if (cache_result == PTCACHE_READ_EXACT ||
       cache_result == PTCACHE_READ_INTERPOLATED ||
       (!can_simulate && cache_result == PTCACHE_READ_OLD)) {
-      softbody_to_object(ob, vertexCos, numVerts, sb->local);
+
+      admmpd_copy_from_bodypoint(sb->admmpd,sb->bpoint);
+      admmpd_copy_to_bodypoint_and_object(sb->admmpd,NULL,vertexCos);
+
       BKE_ptcache_validate(cache, framenr);
       if (cache_result == PTCACHE_READ_INTERPOLATED &&
         cache->flag & PTCACHE_REDO_NEEDED &&

@@ -165,7 +165,7 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
       gen_success = admmpd_init_with_lattice(iface,in_verts,in_faces,&V,&T);
       break;
   }
-  if (!gen_success)
+  if (!gen_success || iface->totverts==0)
   {
     printf("**ADMMPD Failed to generate tets\n");
     return 0;
@@ -224,6 +224,8 @@ void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *
       }
     }
 
+    // If we're using TetGen, then we know the first
+    // n vertices of the tet mesh are the input surface mesh.
     if (vertexCos != NULL && iface->init_mode==0 && i<iface->mesh_totverts)
     {
       vertexCos[i][0] = iface->data->data->x(i,0);
@@ -232,13 +234,18 @@ void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *
     }
   } // end loop all verts
 
+  // If using lattice, get the embedded vertex position
+  // from the deformed lattice.
   if (vertexCos != NULL && iface->init_mode==1)
   {
-//    Eigen::Vector3d xi = iface->data->lattice->get_mapped_vertex(
-//      i, &iface->data->data->x, &iface->data->data->tets);
-//    vertexCos[i][0] = xi[0];
-//    vertexCos[i][1] = xi[1];
-//    vertexCos[i][2] = xi[2];
+      for (int i=0; i<iface->mesh_totverts; ++i)
+      {
+        Eigen::Vector3d xi = iface->data->lattice->get_mapped_vertex(
+          i, &iface->data->data->x, &iface->data->data->tets);
+        vertexCos[i][0] = xi[0];
+        vertexCos[i][1] = xi[1];
+        vertexCos[i][2] = xi[2];
+      }
   }
 
 } // end map ADMMPD to bodypoint and object
