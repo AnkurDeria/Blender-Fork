@@ -34,6 +34,7 @@ struct Options {
         {}
 };
 
+// TODO template type for float/double
 struct Data {
     // Set from input
     Eigen::MatrixXi tets; // elements t x 4

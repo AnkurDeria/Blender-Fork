@@ -13,6 +13,7 @@
 #include <iostream>
 
 #include "BLI_task.h" // threading
+#include "BLI_assert.h" // assert
 
 namespace admmpd {
 using namespace Eigen;
@@ -29,6 +30,7 @@ bool Solver::init(
     const Options *options,
     Data *data)
 {
+	BLI_assert(data != NULL);
 	if (!data || !options)
 		throw std::runtime_error("init: data/options null");
 

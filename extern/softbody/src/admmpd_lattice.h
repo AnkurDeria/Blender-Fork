@@ -16,7 +16,8 @@ public:
 
     // Returns true on success
     bool generate(
-        const Eigen::MatrixXd &V,
+        const Eigen::MatrixXd &V, // embedded verts
+        const Eigen::MatrixXi &F, // embedded faces
         Eigen::MatrixXd *x, // lattice vertices, n x 3
         Eigen::MatrixXi *tets); // lattice elements, m x 4
 

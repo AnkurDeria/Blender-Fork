@@ -24,7 +24,8 @@ set(INC
 
 set(INC_SYS
   ${EIGEN3_INCLUDE_DIRS}
-  ../../source/blender/blenlib # BLI_task for threading
+  ../../source/blender/blenlib
+  ../../source/blender/makesdna # BLI_math_geom requires DNA
 )
 
 set(SRC

@@ -7,14 +7,55 @@
 #include "admmpd_bvh_traverse.h"
 #include <iostream>
 #include <unordered_map>
+#include <set>
 #include "BLI_task.h" // threading
 
 namespace admmpd {
 using namespace Eigen;
 
+typedef struct KeepTetThreadData {
+	AABBTree<double,3> *tree; // of embedded faces
+	const MatrixXd *pts; // of embedded verts
+	const MatrixXi *faces; // embedded faces
+	const std::vector<Vector3d> *tet_x;
+	const std::vector<Vector4i> *tets;
+	std::vector<int> *keep_tet; // 0 or 1
+} KeepTetThreadData;
+
+static void parallel_keep_tet(
+	void *__restrict userdata,
+	const int i,
+	const TaskParallelTLS *__restrict UNUSED(tls))
+{
+	KeepTetThreadData *td = (KeepTetThreadData*)userdata;
+	RowVector4i tet = td->tets->at(i);
+	Vector3d tet_pts[4] = {
+		td->tet_x->at(tet[0]),
+		td->tet_x->at(tet[1]),
+		td->tet_x->at(tet[2]),
+		td->tet_x->at(tet[3])
+	};
+
+	// Returns true if the tet intersects the
+	// surface mesh. Even if it doesn't, we want to keep
+	// the tet if it's totally enclosed in the mesh.
+	TetIntersectsMeshTraverse<double> traverser(
+		tet_pts, td->pts, td->faces);
+	bool hit = td->tree->traverse(traverser);
+	if (!hit)
+	{
+		if (traverser.output.ray_hit_count % 2 == 1)
+			hit = true;
+	}
+
+	if (hit) { td->keep_tet->at(i) = 1; }
+	else { td->keep_tet->at(i) = 0; }
+
+} // end parallel test if keep tet
 
 bool Lattice::generate(
 	const Eigen::MatrixXd &V,
+	const Eigen::MatrixXi &F,
     Eigen::MatrixXd *X, // lattice vertices, n x 3
     Eigen::MatrixXi *T) // lattice elements, m x 4
 {
@@ -100,24 +141,90 @@ bool Lattice::generate(
 
 	} // end create boxes and vertices
 
-	// Copy data into matrices
+	// We only want to keep tets that are either
+	// a) intersecting the surface mesh
+	// b) totally inside the surface mesh
+	std::set<int> refd_verts;
 	{
-		nv = verts.size();
-		X->resize(nv,3);
-		for(int i=0; i<nv; ++i){
-			for(int j=0; j<3; ++j){
-				X->operator()(i,j) = verts[i][j];
+		int nf = F.rows();
+		std::vector<AlignedBox<double,3> > face_aabb(nf);
+		for (int i=0; i<nf; ++i)
+		{
+			RowVector3i f = F.row(i);
+			face_aabb[i].setEmpty();
+			for (int j=0; j<3; ++j)
+				face_aabb[i].extend(V.row(f[j]).transpose());
+		}
+
+		int nt0 = tets.size();
+		std::vector<int> keep_tet(nt0,1);
+
+		AABBTree<double,3> mesh_tree;
+		mesh_tree.init(face_aabb);
+		KeepTetThreadData thread_data = {
+			.tree = &mesh_tree,
+			.pts = &V,
+			.faces = &F,
+			.tet_x = &verts,
+			.tets = &tets,
+			.keep_tet = &keep_tet
+		};
+		TaskParallelSettings settings;
+		BLI_parallel_range_settings_defaults(&settings);
+		BLI_task_parallel_range(0, nt0, &thread_data, parallel_keep_tet, &settings);
+
+		// Loop over tets and remove as needed.
+		// Mark referenced vertices to compute a mapping.
+		int tet_idx = 0;
+		for (std::vector<Vector4i>::iterator it = tets.begin(); it != tets.end(); ++tet_idx)
+		{
+			bool keep = keep_tet[tet_idx];
+			if (keep)
+			{
+				refd_verts.emplace((*it)[0]);
+				refd_verts.emplace((*it)[1]);
+				refd_verts.emplace((*it)[2]);
+				refd_verts.emplace((*it)[3]);
+				++it;
+			}
+			else { it = tets.erase(it); }
+		}
+
+	} // end remove unnecessary tets
+
+	// Copy data into matrices and remove unreferenced
+	{
+		// Computing a mapping of vertices from old to new
+		std::unordered_map<int,int> vtx_old_to_new;
+		int ntv0 = verts.size(); // original num verts
+		int ntv1 = refd_verts.size(); // reduced num verts
+		X->resize(ntv1,3);
+		int vtx_count = 0;
+		for (int i=0; i<ntv0; ++i)
+		{
+			if (refd_verts.count(i)>0)
+			{
+				for(int j=0; j<3; ++j){
+					X->operator()(vtx_count,j) = verts[i][j];
+				}
+				vtx_old_to_new[i] = vtx_count;
+				vtx_count++;
 			}
 		}
+
+		// Copy tets to matrix data and update vertices
 		int nt = tets.size();
 		T->resize(nt,4);
 		for(int i=0; i<nt; ++i){
 			for(int j=0; j<4; ++j){
-				T->operator()(i,j) = tets[i][j];
+				int old_idx = tets[i][j];
+				BLI_assert(vtx_old_to_new.count(old_idx)>0);
+				T->operator()(i,j) = vtx_old_to_new[old_idx];
 			}
 		}
 	}
 
+	// Now compute the baryweighting for embedded vertices
 	return compute_vtx_tet_mapping(
 		&V, &vtx_to_tet, &barys,
 		X, T);

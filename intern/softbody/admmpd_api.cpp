@@ -112,7 +112,6 @@ static int admmpd_init_with_lattice(
   ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_faces,
   Eigen::MatrixXd *V, Eigen::MatrixXi *T)
 {
-  (void)(in_faces);
   int nv = iface->mesh_totverts;
   Eigen::MatrixXd in_V(nv,3);
   for (int i=0; i<nv; ++i)
@@ -123,8 +122,18 @@ static int admmpd_init_with_lattice(
     }
   }
 
+  int nf = iface->mesh_totfaces;
+  Eigen::MatrixXi in_F(nf,3);
+  for (int i=0; i<nf; ++i)
+  {
+    for (int j=0; j<3; ++j)
+    {
+      in_F(i,j) = in_faces[i*3+j];
+    }
+  }
+
   iface->totverts = 0;
-  bool success = iface->data->lattice->generate(in_V,V,T);
+  bool success = iface->data->lattice->generate(in_V,in_F,V,T);
   if (success)
   {
     iface->totverts = V->rows();
