@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <iostream>
+#include <unordered_map>
 
 #include "BLI_task.h" // threading
 #include "BLI_assert.h"
@@ -163,12 +164,12 @@ void Solver::update_constraints(
     std::vector<Eigen::Triplet<double> > trips_z;
 
 	// TODO collision detection
-	FloorCollider().jacobian(
-		&data->x,
-		&trips_x,
-		&trips_y,
-		&trips_z,
-		&l_coeffs);
+//	FloorCollider().jacobian(
+//		&data->x,
+//		&trips_x,
+//		&trips_y,
+//		&trips_z,
+//		&l_coeffs);
 
 	// Check number of constraints.
 	// If no constraints, clear Jacobian.
@@ -417,6 +418,16 @@ void Solver::compute_masses(
 		data->m[tet[1]] += tet_mass / 4.f;
 		data->m[tet[2]] += tet_mass / 4.f;
 		data->m[tet[3]] += tet_mass / 4.f;
+	}
+	// Verify masses
+	int nx = data->m.rows();
+	for (int i=0; i<nx; ++i)
+	{
+		if (data->m[i] <= 0.0)
+		{
+			printf("**Solver::compute_masses Error: unreferenced vertex\n");
+			data->m[i]=1;
+		}
 	}
 } // end compute masses
 

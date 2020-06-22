@@ -57,7 +57,10 @@ void admmpd_copy_from_bodypoint(ADMMPDInterfaceData*, const BodyPoint *pts);
 // Copies internal vertex position and velocity data
 // to BodyPoints (from SoftBody) AND surface mesh vertices.
 // If pts or vertexCos is null, its skipped
-void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData*, BodyPoint *pts, float (*vertexCos)[3]);
+void admmpd_copy_to_bodypoint_and_object(
+    ADMMPDInterfaceData*,
+    BodyPoint *pts,
+    float (*vertexCos)[3]);
 
 // Copies out_verts and out_verts to internal data
 // Performs solve over the time step

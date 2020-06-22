@@ -3580,7 +3580,7 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
     MEM_freeN(sb->admmpd);
     sb->admmpd = NULL;
   }
-  sb->admmpd = (ADMMPDInterfaceData*)MEM_callocN(sizeof(ADMMPDInterfaceData), "SoftBody_ADMMPD");
+  sb->admmpd = MEM_callocN(sizeof(ADMMPDInterfaceData), "SoftBody_ADMMPD");
 
   // Resize data
   int totfaces = poly_to_tri_count(me->totpoly, me->totloop);
@@ -3616,7 +3616,7 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
   looptri = NULL;
 
   // Initalize solver and free tmp data
-  sb->admmpd->init_mode = 1;
+  sb->admmpd->init_mode = 1; // 0=tetmesh, 1=lattice
   admmpd_init(sb->admmpd, in_verts, in_faces);
   MEM_freeN(in_verts);
   MEM_freeN(in_faces);
@@ -3630,9 +3630,12 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
     }
     sb->totpoint = sb->admmpd->totverts;
     sb->totspring = 0;
-    sb->bpoint = MEM_callocN(sb->totpoint * sizeof(BodyPoint), "bodypoint");
+    sb->bpoint = (BodyPoint*)MEM_callocN(sb->totpoint*sizeof(BodyPoint), "bodypoint");
   }
 
+  // admmpd_init will have created tets with extra vertices besides
+  // the ones on the surface (vertexCos). We'll store those vertices
+  // in SoftBody::bpoint.
   admmpd_copy_to_bodypoint_and_object(sb->admmpd,sb->bpoint,NULL);
 }
 
@@ -3660,25 +3663,17 @@ void sbObjectStep_admmpd(
   float timescale = 0.f;
   BKE_ptcache_id_from_softbody(&pid, ob, sb);
   BKE_ptcache_id_time(&pid, scene, framenr, &startframe, &endframe, &timescale);
-  
-  // BKE_ptcache_validate:
-  //  sets flag that simulation is valid (|=)
-  //  and sets simframe to framenr
-  // Calling BKE_ptcache_id_reset calls
-  //  free_softbody_intern
 
-  // Reset cache
-  if (sb->admmpd == NULL ||
-    sb->admmpd->mesh_totverts != numVerts)
-  {
-    cache->flag |= PTCACHE_OUTDATED;
-    BKE_ptcache_id_reset(scene, &pid, PTCACHE_RESET_OUTDATED);
-    BKE_ptcache_validate(cache, 0);
-    cache->last_exact = 0;
-    cache->flag &= ~PTCACHE_REDO_NEEDED;
+  // check for changes in mesh, should only happen in case the mesh
+  // structure changes during an animation.
+  // Hopefully we're short-circuiting the boolean here.
+  if (sb->admmpd != NULL &&
+      sb->admmpd->mesh_totverts != numVerts) {
+    BKE_ptcache_invalidate(cache);
+    return;
   }
 
-  // Clamp simulation frame
+  // clamp frame ranges
   if (framenr < startframe) {
     BKE_ptcache_invalidate(cache);
     return;
@@ -3686,6 +3681,22 @@ void sbObjectStep_admmpd(
   else if (framenr > endframe) {
     framenr = endframe;
   }
+
+  // BKE_ptcache_validate:
+  //  sets flag that simulation is valid (|=)
+  //  and sets simframe to framenr
+  // Calling BKE_ptcache_id_reset calls
+  //  free_softbody_intern
+
+  // Reset cache
+//  if (sb->admmpd && sb->admmpd->mesh_totverts != numVerts)
+//  {
+//    cache->flag |= PTCACHE_OUTDATED;
+//    BKE_ptcache_id_reset(scene, &pid, PTCACHE_RESET_OUTDATED);
+//    BKE_ptcache_validate(cache, 0);
+//    cache->last_exact = 0;
+//    cache->flag &= ~PTCACHE_REDO_NEEDED;
+//  }
 
   // If it's the first frame we reset the cache and data
   if (framenr == startframe || sb->admmpd == NULL) {
@@ -3710,8 +3721,17 @@ void sbObjectStep_admmpd(
       cache_result == PTCACHE_READ_INTERPOLATED ||
       (!can_simulate && cache_result == PTCACHE_READ_OLD)) {
 
+      // Copies bodypoint vertices to ADMM internal verts
       admmpd_copy_from_bodypoint(sb->admmpd,sb->bpoint);
+      // Maps ADMM internal verts to surface verts
       admmpd_copy_to_bodypoint_and_object(sb->admmpd,NULL,vertexCos);
+      if(sb->local==0)
+      {
+        for (int i=0; i<me->totvert; ++i)
+        {
+          mul_m4_v3(ob->imat, vertexCos[i]);
+        }
+      }
 
       BKE_ptcache_validate(cache, framenr);
       if (cache_result == PTCACHE_READ_INTERPOLATED &&
@@ -3724,6 +3744,7 @@ void sbObjectStep_admmpd(
     }
     else if (cache_result == PTCACHE_READ_OLD) {} // pass
     else if (cache->flag & PTCACHE_BAKED) {
+
       // if baked and nothing in cache, do nothing
       if (can_write_cache) {
         BKE_ptcache_invalidate(cache);
@@ -3732,7 +3753,9 @@ void sbObjectStep_admmpd(
     }
 
     if (!can_simulate)
+    {
       return;
+    }
   } // end read from cache
 
   // if on second frame, write cache for first frame
@@ -3744,8 +3767,13 @@ void sbObjectStep_admmpd(
   // Update ADMMPD interface variables from cache
   // and perform a solve.
   admmpd_copy_from_bodypoint(sb->admmpd,sb->bpoint);
+
   admmpd_solve(sb->admmpd);
   admmpd_copy_to_bodypoint_and_object(sb->admmpd,sb->bpoint,vertexCos);
+  for (int i=0; i<me->totvert; ++i)
+  { // TODO move this to admmpd API
+    mul_m4_v3(ob->imat, vertexCos[i]);
+  }
 
   // Write cache
   BKE_ptcache_validate(cache, framenr);

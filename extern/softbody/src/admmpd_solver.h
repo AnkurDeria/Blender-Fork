@@ -12,23 +12,23 @@
 namespace admmpd {
 
 struct Options {
-    double timestep_s;
+    double timestep_s; // TODO: Figure out delta time from blender api
     int max_admm_iters;
     int max_cg_iters;
     double mult_k; // stiffness multiplier for constraints
     double min_res; // min residual for CG solver
     double density_kgm3; // unit-volume density
-    double youngs; // Young's modulus
-    double poisson; // Poisson ratio
+    double youngs; // Young's modulus // TODO variable per-tet
+    double poisson; // Poisson ratio // TODO variable per-tet
     Eigen::Vector3d grav;
     Options() :
-        timestep_s(1.0/100.0), // TODO: Figure out delta time from blender api
+        timestep_s(1.0/100.0),
         max_admm_iters(20),
         max_cg_iters(10),
         mult_k(1.0),
         min_res(1e-4),
         density_kgm3(1100),
-        youngs(10000000),
+        youngs(100000000),
         poisson(0.399),
         grav(0,0,-9.8)
         {}

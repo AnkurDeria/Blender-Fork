@@ -47,9 +47,7 @@ void admmpd_dealloc(ADMMPDInterfaceData *iface)
   if (iface==NULL)
     return;
 
-  iface->totverts = 0;
-  iface->mesh_totverts = 0;
-  iface->mesh_totfaces = 0;
+  iface->totverts = 0; // output vertices
 
   if (iface->data)
   {
@@ -144,13 +142,15 @@ static int admmpd_init_with_lattice(
 
 int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_faces)
 {
-
   if (iface==NULL)
     return 0;
   if (in_verts==NULL || in_faces==NULL)
     return 0;
   if (iface->mesh_totverts<=0 || iface->mesh_totfaces<=0)
     return 0;
+
+  // Delete any existing data
+  admmpd_dealloc(iface);
 
   // Generate solver data
   iface->data = new ADMMPDInternalData();

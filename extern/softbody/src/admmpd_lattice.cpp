@@ -9,12 +9,13 @@
 #include <unordered_map>
 #include <set>
 #include "BLI_task.h" // threading
+#include "BLI_assert.h"
 
 namespace admmpd {
 using namespace Eigen;
 
 typedef struct KeepTetThreadData {
-	AABBTree<double,3> *tree; // of embedded faces
+	const AABBTree<double,3> *tree; // of embedded faces
 	const MatrixXd *pts; // of embedded verts
 	const MatrixXi *faces; // embedded faces
 	const std::vector<Vector3d> *tet_x;
@@ -39,13 +40,22 @@ static void parallel_keep_tet(
 	// Returns true if the tet intersects the
 	// surface mesh. Even if it doesn't, we want to keep
 	// the tet if it's totally enclosed in the mesh.
-	TetIntersectsMeshTraverse<double> traverser(
+	TetIntersectsMeshTraverse<double> tet_hits_mesh(
 		tet_pts, td->pts, td->faces);
-	bool hit = td->tree->traverse(traverser);
+	bool hit = td->tree->traverse(tet_hits_mesh);
 	if (!hit)
 	{
-		if (traverser.output.ray_hit_count % 2 == 1)
+		// We only need to check if one vertex of the
+		// tet is inside the mesh. If a subset of
+		// vertices are inside the mesh, then there would
+		// be tri/tri intersection.
+		PointInTriangleMeshTraverse<double> pt_in_mesh(
+			tet_pts[0], td->pts, td->faces);
+		td->tree->traverse(pt_in_mesh);
+		if (pt_in_mesh.output.num_hits() % 2 == 1)
+		{
 			hit = true;
+		}
 	}
 
 	if (hit) { td->keep_tet->at(i) = 1; }
@@ -181,23 +191,28 @@ bool Lattice::generate(
 			bool keep = keep_tet[tet_idx];
 			if (keep)
 			{
-				refd_verts.emplace((*it)[0]);
-				refd_verts.emplace((*it)[1]);
-				refd_verts.emplace((*it)[2]);
-				refd_verts.emplace((*it)[3]);
+				const Vector4i &t = *it;
+				refd_verts.emplace(t[0]);
+				refd_verts.emplace(t[1]);
+				refd_verts.emplace(t[2]);
+				refd_verts.emplace(t[3]);
 				++it;
 			}
 			else { it = tets.erase(it); }
 		}
+
+		printf("Lattice: removed %d tets\n", tet_idx-(int)tets.size());
 
 	} // end remove unnecessary tets
 
 	// Copy data into matrices and remove unreferenced
 	{
 		// Computing a mapping of vertices from old to new
+		// Delete any unreferenced vertices
 		std::unordered_map<int,int> vtx_old_to_new;
 		int ntv0 = verts.size(); // original num verts
 		int ntv1 = refd_verts.size(); // reduced num verts
+		BLI_assert(ntv1 <= ntv0);
 		X->resize(ntv1,3);
 		int vtx_count = 0;
 		for (int i=0; i<ntv0; ++i)
@@ -247,7 +262,7 @@ static void parallel_point_in_tet(
 {
 	FindTetThreadData *td = (FindTetThreadData*)userdata;
 	Vector3d pt = td->pts->row(i);
-	PointInTetTraverse<double> traverser(pt, td->tet_x, td->tets);
+	PointInTetMeshTraverse<double> traverser(pt, td->tet_x, td->tets);
 	bool success = td->tree->traverse(traverser);
 	int tet_idx = traverser.output.prim;
 	if (success && tet_idx >= 0)
@@ -288,6 +303,7 @@ bool Lattice::compute_vtx_tet_mapping(
 	// barycoords for each embedded vertex
 	std::vector<AlignedBox<double,3> > tet_aabbs;
 	tet_aabbs.resize(nt);
+	Vector3d veta = Vector3d::Ones()*1e-12;
 	for (int i=0; i<nt; ++i)
 	{
 		tet_aabbs[i].setEmpty();
@@ -296,6 +312,8 @@ bool Lattice::compute_vtx_tet_mapping(
 		{
 			tet_aabbs[i].extend(x_->row(tet[j]).transpose());
 		}
+		tet_aabbs[i].extend(tet_aabbs[i].min()-veta);
+		tet_aabbs[i].extend(tet_aabbs[i].max()+veta);
 	}
 
 	AABBTree<double,3> tree;
