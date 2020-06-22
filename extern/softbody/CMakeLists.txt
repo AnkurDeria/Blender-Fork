@@ -29,20 +29,21 @@ set(INC_SYS
 )
 
 set(SRC
-  src/admmpd_math.h
-  src/admmpd_math.cpp
-  src/admmpd_energy.h
-  src/admmpd_energy.cpp
-  src/admmpd_lattice.h
-  src/admmpd_lattice.cpp
-  src/admmpd_solver.h
-  src/admmpd_solver.cpp
-  src/admmpd_collision.h
-  src/admmpd_collision.cpp
   src/admmpd_bvh.h
   src/admmpd_bvh.cpp
   src/admmpd_bvh_traverse.h
   src/admmpd_bvh_traverse.cpp
+  src/admmpd_collision.h
+  src/admmpd_collision.cpp
+  src/admmpd_embeddedmesh.h
+  src/admmpd_embeddedmesh.cpp
+  src/admmpd_energy.h
+  src/admmpd_energy.cpp
+  src/admmpd_math.h
+  src/admmpd_math.cpp
+  src/admmpd_solver.h
+  src/admmpd_solver.cpp
+  src/admmpd_types.h
 )
 
 set(LIB

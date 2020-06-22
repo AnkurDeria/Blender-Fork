@@ -3639,6 +3639,34 @@ static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
   admmpd_copy_to_bodypoint_and_object(sb->admmpd,sb->bpoint,NULL);
 }
 
+static void admmpd_update_collider(
+  Depsgraph *depsgraph,
+  Collection *collection,
+  Object *vertexowner)
+{
+  unsigned int numobjects;
+  Object **objects = BKE_collision_objects_create(
+      depsgraph,
+      vertexowner,
+      collection,
+      &numobjects,
+      eModifierType_Collision);
+
+  for (int i = 0; i < numobjects; ++i) {
+    Object *ob = objects[i];
+    if (ob->type == OB_MESH) {
+      if (ob->pd && ob->pd->deflect){
+        ccd_Mesh *ccdmesh = ccd_mesh_make(ob);
+        printf("tri num %d\n", ccdmesh->tri_num);
+        ccd_mesh_free(ccdmesh);
+      }
+      //ccd_build_deflector_hash_single(hash, ob);
+    }
+  }
+
+  BKE_collision_objects_free(objects);
+}
+
 /* simulates one step. framenr is in frames */
 void sbObjectStep_admmpd(
                   struct Depsgraph *depsgraph,
@@ -3767,7 +3795,7 @@ void sbObjectStep_admmpd(
   // Update ADMMPD interface variables from cache
   // and perform a solve.
   admmpd_copy_from_bodypoint(sb->admmpd,sb->bpoint);
-
+  admmpd_update_collider(depsgraph, sb->collision_group, ob);
   admmpd_solve(sb->admmpd);
   admmpd_copy_to_bodypoint_and_object(sb->admmpd,sb->bpoint,vertexCos);
   for (int i=0; i<me->totvert; ++i)
@@ -3781,6 +3809,7 @@ void sbObjectStep_admmpd(
   sbStoreLastFrame(depsgraph, ob, framenr);
 
 } // end step object with ADMMPD
+
 
 /* simulates one step. framenr is in frames */
 void sbObjectStep(struct Depsgraph *depsgraph,

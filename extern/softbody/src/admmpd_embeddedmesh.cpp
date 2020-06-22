@@ -1,7 +1,7 @@
 // Copyright Matt Overby 2020.
 // Distributed under the MIT License.
 
-#include "admmpd_lattice.h"
+#include "admmpd_embeddedmesh.h"
 #include "admmpd_math.h"
 #include "admmpd_bvh.h"
 #include "admmpd_bvh_traverse.h"
@@ -63,12 +63,20 @@ static void parallel_keep_tet(
 
 } // end parallel test if keep tet
 
-bool Lattice::generate(
-	const Eigen::MatrixXd &V,
-	const Eigen::MatrixXi &F,
-    Eigen::MatrixXd *X, // lattice vertices, n x 3
-    Eigen::MatrixXi *T) // lattice elements, m x 4
+bool EmbeddedMesh::generate(
+	const Eigen::MatrixXd &V, // embedded verts
+	const Eigen::MatrixXi &F, // embedded faces
+	EmbeddedMeshData *emb_mesh, // where embedding is stored
+	Eigen::MatrixXd *x_tets) // lattice vertices, n x 3
 {
+	if (emb_mesh==NULL)
+		return false;
+	if (x_tets==NULL)
+		return false;
+
+	emb_mesh->faces = F;
+	emb_mesh->x_rest = V;
+
 	AlignedBox<double,3> aabb;
 	int nv = V.rows();
 	for(int i=0; i<nv; ++i)
@@ -201,8 +209,6 @@ bool Lattice::generate(
 			else { it = tets.erase(it); }
 		}
 
-		printf("Lattice: removed %d tets\n", tet_idx-(int)tets.size());
-
 	} // end remove unnecessary tets
 
 	// Copy data into matrices and remove unreferenced
@@ -213,14 +219,14 @@ bool Lattice::generate(
 		int ntv0 = verts.size(); // original num verts
 		int ntv1 = refd_verts.size(); // reduced num verts
 		BLI_assert(ntv1 <= ntv0);
-		X->resize(ntv1,3);
+		x_tets->resize(ntv1,3);
 		int vtx_count = 0;
 		for (int i=0; i<ntv0; ++i)
 		{
 			if (refd_verts.count(i)>0)
 			{
 				for(int j=0; j<3; ++j){
-					X->operator()(vtx_count,j) = verts[i][j];
+					x_tets->operator()(vtx_count,j) = verts[i][j];
 				}
 				vtx_old_to_new[i] = vtx_count;
 				vtx_count++;
@@ -229,30 +235,27 @@ bool Lattice::generate(
 
 		// Copy tets to matrix data and update vertices
 		int nt = tets.size();
-		T->resize(nt,4);
+		emb_mesh->tets.resize(nt,4);
 		for(int i=0; i<nt; ++i){
 			for(int j=0; j<4; ++j){
 				int old_idx = tets[i][j];
 				BLI_assert(vtx_old_to_new.count(old_idx)>0);
-				T->operator()(i,j) = vtx_old_to_new[old_idx];
+				emb_mesh->tets(i,j) = vtx_old_to_new[old_idx];
 			}
 		}
 	}
 
 	// Now compute the baryweighting for embedded vertices
-	return compute_vtx_tet_mapping(
-		&V, &vtx_to_tet, &barys,
-		X, T);
+	return compute_embedding(
+		emb_mesh, &V, x_tets);
 
 } // end gen lattice
 
 typedef struct FindTetThreadData {
 	AABBTree<double,3> *tree;
-	const MatrixXd *pts;
-	VectorXi *pts_to_tet;
-	MatrixXd *barys;
-	const MatrixXd *tet_x;
-	const MatrixXi *tets;
+	EmbeddedMeshData *emb_mesh; // thread sets vtx_to_tet and barys
+	const Eigen::MatrixXd *x_embed;
+	const Eigen::MatrixXd *x_tets;
 } FindTetThreadData;
 
 static void parallel_point_in_tet(
@@ -261,43 +264,42 @@ static void parallel_point_in_tet(
 	const TaskParallelTLS *__restrict UNUSED(tls))
 {
 	FindTetThreadData *td = (FindTetThreadData*)userdata;
-	Vector3d pt = td->pts->row(i);
-	PointInTetMeshTraverse<double> traverser(pt, td->tet_x, td->tets);
+	Vector3d pt = td->x_embed->row(i);
+	PointInTetMeshTraverse<double> traverser(pt, td->x_tets, &td->emb_mesh->tets);
 	bool success = td->tree->traverse(traverser);
 	int tet_idx = traverser.output.prim;
 	if (success && tet_idx >= 0)
 	{
-		RowVector4i tet = td->tets->row(tet_idx);
+		RowVector4i tet = td->emb_mesh->tets.row(tet_idx);
 		Vector3d t[4] = {
-			td->tet_x->row(tet[0]),
-			td->tet_x->row(tet[1]),
-			td->tet_x->row(tet[2]),
-			td->tet_x->row(tet[3])
+			td->x_tets->row(tet[0]),
+			td->x_tets->row(tet[1]),
+			td->x_tets->row(tet[2]),
+			td->x_tets->row(tet[3])
 		};
-		td->pts_to_tet->operator[](i) = tet_idx;
+		td->emb_mesh->vtx_to_tet[i] = tet_idx;
 		Vector4d b = barycoords::point_tet(pt,t[0],t[1],t[2],t[3]);
-		td->barys->row(i) = b;
+		td->emb_mesh->barys.row(i) = b;
 	}
 } // end parallel lin solve
 
-bool Lattice::compute_vtx_tet_mapping(
-	const Eigen::MatrixXd *vtx_, // embedded vertices, p x 3
-	Eigen::VectorXi *vtx_to_tet_, // what tet vtx is embedded in, p x 1
-	Eigen::MatrixXd *barys_, // barycoords of the embedding, p x 4
-	const Eigen::MatrixXd *x_, // lattice vertices, n x 3
-	const Eigen::MatrixXi *tets_) // lattice elements, m x 4
+bool EmbeddedMesh::compute_embedding(
+	EmbeddedMeshData *emb_mesh, // where embedding is stored
+	const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
+	const Eigen::MatrixXd *x_tets) // lattice vertices, n x 3
 {
-	if (!vtx_ || !vtx_to_tet_ || !barys_ || !x_ || !tets_)
-		return false;
+	BLI_assert(emb_mesh!=NULL);
+	BLI_assert(x_embed!=NULL);
+	BLI_assert(x_tets!=NULL);
 
-	int nv = vtx_->rows();
+	int nv = x_embed->rows();
 	if (nv==0)
 		return false;
 
-	barys_->resize(nv,4);
-	barys_->setOnes();
-	vtx_to_tet_->resize(nv);
-	int nt = tets_->rows();
+	emb_mesh->barys.resize(nv,4);
+	emb_mesh->barys.setOnes();
+	emb_mesh->vtx_to_tet.resize(nv);
+	int nt = emb_mesh->tets.rows();
 
 	// BVH tree for finding point-in-tet and computing
 	// barycoords for each embedded vertex
@@ -307,11 +309,10 @@ bool Lattice::compute_vtx_tet_mapping(
 	for (int i=0; i<nt; ++i)
 	{
 		tet_aabbs[i].setEmpty();
-		RowVector4i tet = tets_->row(i);
+		RowVector4i tet = emb_mesh->tets.row(i);
 		for (int j=0; j<4; ++j)
-		{
-			tet_aabbs[i].extend(x_->row(tet[j]).transpose());
-		}
+			tet_aabbs[i].extend(x_tets->row(tet[j]).transpose());
+
 		tet_aabbs[i].extend(tet_aabbs[i].min()-veta);
 		tet_aabbs[i].extend(tet_aabbs[i].max()+veta);
 	}
@@ -321,11 +322,9 @@ bool Lattice::compute_vtx_tet_mapping(
 
 	FindTetThreadData thread_data = {
 		.tree = &tree,
-		.pts = vtx_,
-		.pts_to_tet = vtx_to_tet_,
-		.barys = barys_,
-		.tet_x = x_,
-		.tets = tets_
+		.emb_mesh = emb_mesh,
+		.x_embed = x_embed,
+		.x_tets = x_tets
 	};
 	TaskParallelSettings settings;
 	BLI_parallel_range_settings_defaults(&settings);
@@ -335,7 +334,7 @@ bool Lattice::compute_vtx_tet_mapping(
 	const double eps = 1e-8;
 	for (int i=0; i<nv; ++i)
 	{
-		RowVector4d b = barys_->row(i);
+		RowVector4d b = emb_mesh->barys.row(i);
 		if (b.minCoeff() < -eps)
 		{
 			printf("**Lattice::generate Error: negative barycoords\n");
@@ -357,19 +356,19 @@ bool Lattice::compute_vtx_tet_mapping(
 
 } // end compute vtx to tet mapping
 
-Eigen::Vector3d Lattice::get_mapped_vertex(
-	int idx,
-	const Eigen::MatrixXd *x_or_v,
-	const Eigen::MatrixXi *tets )
+Eigen::Vector3d EmbeddedMesh::get_mapped_vertex(
+	const EmbeddedMeshData *emb_mesh,
+	const Eigen::MatrixXd *x_data,
+	int idx)
 {
-    int t_idx = vtx_to_tet[idx];
-    RowVector4i tet = tets->row(t_idx);
-    RowVector4d b = barys.row(idx);
+    int t_idx = emb_mesh->vtx_to_tet[idx];
+    RowVector4i tet = emb_mesh->tets.row(t_idx);
+    RowVector4d b = emb_mesh->barys.row(idx);
     return Vector3d(
-		x_or_v->row(tet[0]) * b[0] +
-		x_or_v->row(tet[1]) * b[1] +
-		x_or_v->row(tet[2]) * b[2] +
-		x_or_v->row(tet[3]) * b[3]);
+		x_data->row(tet[0]) * b[0] +
+		x_data->row(tet[1]) * b[1] +
+		x_data->row(tet[2]) * b[2] +
+		x_data->row(tet[3]) * b[3]);
 }
 
 } // namespace admmpd

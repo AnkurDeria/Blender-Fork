@@ -2,7 +2,6 @@
 // Distributed under the MIT License.
 
 #include "admmpd_solver.h"
-#include "admmpd_lattice.h"
 #include "admmpd_energy.h"
 #include "admmpd_collision.h"
 

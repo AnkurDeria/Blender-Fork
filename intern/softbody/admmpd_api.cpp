@@ -22,8 +22,9 @@
  */
 
 #include "admmpd_api.h"
+#include "admmpd_types.h"
 #include "admmpd_solver.h"
-#include "admmpd_lattice.h"
+#include "admmpd_embeddedmesh.h"
 #include "tetgen_api.h"
 #include "DNA_mesh_types.h" // Mesh
 #include "DNA_meshdata_types.h" // MVert
@@ -38,7 +39,7 @@
 struct ADMMPDInternalData {
   admmpd::Options *options;
   admmpd::Data *data;
-  admmpd::Lattice *lattice;
+  admmpd::EmbeddedMeshData *embmesh;
   int in_totverts; // number of input verts
 };
 
@@ -55,8 +56,8 @@ void admmpd_dealloc(ADMMPDInterfaceData *iface)
         delete iface->data->options;
     if(iface->data->data)
         delete iface->data->data;
-    if(iface->data->lattice)
-        delete iface->data->lattice;
+    if(iface->data->embmesh)
+        delete iface->data->embmesh;
     delete iface->data;
   }
 
@@ -110,6 +111,7 @@ static int admmpd_init_with_lattice(
   ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_faces,
   Eigen::MatrixXd *V, Eigen::MatrixXi *T)
 {
+
   int nv = iface->mesh_totverts;
   Eigen::MatrixXd in_V(nv,3);
   for (int i=0; i<nv; ++i)
@@ -131,12 +133,14 @@ static int admmpd_init_with_lattice(
   }
 
   iface->totverts = 0;
-  bool success = iface->data->lattice->generate(in_V,in_F,V,T);
+  bool success = admmpd::EmbeddedMesh().generate(in_V,in_F,iface->data->embmesh,V);
   if (success)
   {
     iface->totverts = V->rows();
+    *T = iface->data->embmesh->tets;
     return 1;
   }
+
   return 0;
 }
 
@@ -158,7 +162,7 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
   admmpd::Options *options = iface->data->options;
   iface->data->data = new admmpd::Data();
   admmpd::Data *data = iface->data->data;
-  iface->data->lattice = new admmpd::Lattice();
+  iface->data->embmesh = new admmpd::EmbeddedMeshData();
 
   // Generate tets and vertices
   Eigen::MatrixXd V;
@@ -218,6 +222,7 @@ void admmpd_copy_from_bodypoint(ADMMPDInterfaceData *iface, const BodyPoint *pts
 
 void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *pts, float (*vertexCos)[3])
 {
+
   if (iface == NULL)
     return;
 
@@ -249,8 +254,9 @@ void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *
   {
       for (int i=0; i<iface->mesh_totverts; ++i)
       {
-        Eigen::Vector3d xi = iface->data->lattice->get_mapped_vertex(
-          i, &iface->data->data->x, &iface->data->data->tets);
+        
+        Eigen::Vector3d xi = admmpd::EmbeddedMesh().get_mapped_vertex(
+          iface->data->embmesh, &iface->data->data->x, i);
         vertexCos[i][0] = xi[0];
         vertexCos[i][1] = xi[1];
         vertexCos[i][2] = xi[2];
