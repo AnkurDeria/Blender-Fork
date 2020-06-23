@@ -17,45 +17,45 @@ public:
         const Eigen::MatrixXd &V, // vertices
         const Eigen::MatrixXi &T, // tets
         const Options *options,
-        Data *data);
+        SolverData *data);
 
     // Solve a single time step.
     // Returns number of iterations.
     int solve(
         const Options *options,
-        Data *data);
+        SolverData *data);
 
 protected:
 
     void update_constraints(
         const Options *options,
-        Data *data);
+        SolverData *data);
 
     void init_solve(
         const Options *options,
-        Data *data);
+        SolverData *data);
 
 	void solve_local_step(
         const Options *options,
-        Data *data);
+        SolverData *data);
 
     // Global step with CG:
     // 1/2||Ax-b||^2 + k/2||Kx-l||^2
 	void solve_conjugate_gradients(
         const Options *options,
-        Data *data);
+        SolverData *data);
 
     bool compute_matrices(
         const Options *options,
-        Data *data);
+        SolverData *data);
 
     void compute_masses(
         const Options *options,
-        Data *data);
+        SolverData *data);
 
 	void append_energies(
 		const Options *options,
-		Data *data,
+		SolverData *data,
 		std::vector<Eigen::Triplet<double> > &D_triplets);
 
 }; // class ADMMPD_solver

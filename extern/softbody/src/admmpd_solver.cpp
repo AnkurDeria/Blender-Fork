@@ -21,14 +21,14 @@ template <typename T> using RowSparseMatrix = SparseMatrix<T,RowMajor>;
 
 typedef struct ThreadData {
 	const Options *options;
-	Data *data;
+	SolverData *data;
 } ThreadData;
 
 bool Solver::init(
     const Eigen::MatrixXd &V,
 	const Eigen::MatrixXi &T,
     const Options *options,
-    Data *data)
+    SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -49,7 +49,7 @@ bool Solver::init(
 
 int Solver::solve(
 	const Options *options,
-	Data *data)
+	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -89,7 +89,7 @@ int Solver::solve(
 
 void Solver::init_solve(
 	const Options *options,
-	Data *data)
+	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -138,7 +138,7 @@ static void parallel_zu_update(
 
 void Solver::solve_local_step(
 	const Options *options,
-	Data *data)
+	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -152,7 +152,7 @@ void Solver::solve_local_step(
 
 void Solver::update_constraints(
 	const Options *options,
-	Data *data)
+	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -195,7 +195,7 @@ void Solver::update_constraints(
 } // end update constraints
 
 typedef struct LinSolveThreadData {
-	Data *data;
+	SolverData *data;
 	MatrixXd *ls_x;
 	MatrixXd *ls_b;
 } LinSolveThreadData;
@@ -211,7 +211,7 @@ static void parallel_lin_solve(
 
 void Solver::solve_conjugate_gradients(
 	const Options *options,
-	Data *data)
+	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -230,7 +230,7 @@ void Solver::solve_conjugate_gradients(
 
 	// Solve Ax = b in parallel
 	auto solve_Ax_b = [](
-		Data *data_,
+		SolverData *data_,
 		MatrixXd *x_,
 		MatrixXd *b_)
 	{
@@ -267,7 +267,7 @@ void Solver::solve_conjugate_gradients(
 	};
 
 	// Update CGData
-	admmpd::Data::CGData *cgdata = &data->cgdata;
+	admmpd::SolverData::CGData *cgdata = &data->cgdata;
 	double eps = options->min_res;
 	cgdata->b = data->b;
 	if (cgdata->r.rows() != nx)
@@ -316,7 +316,7 @@ void Solver::solve_conjugate_gradients(
 
 bool Solver::compute_matrices(
 	const Options *options,
-	Data *data)
+	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -392,7 +392,7 @@ bool Solver::compute_matrices(
 
 void Solver::compute_masses(
 	const Options *options,
-	Data *data)
+	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -432,7 +432,7 @@ void Solver::compute_masses(
 
 void Solver::append_energies(
 	const Options *options,
-	Data *data,
+	SolverData *data,
 	std::vector<Triplet<double> > &D_triplets)
 {
 	BLI_assert(data != NULL);

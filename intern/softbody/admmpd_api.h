@@ -38,7 +38,7 @@ typedef struct ADMMPDInterfaceData {
     int mesh_totfaces; // number of surface mesh faces (input)
     int init_mode; // 0=tetgen, 1=lattice
     // Solver data used internally
-    struct ADMMPDInternalData *data;
+    struct ADMMPDInternalData *idata;
 } ADMMPDInterfaceData;
 
 // SoftBody bodypoint (contains pos,vec)

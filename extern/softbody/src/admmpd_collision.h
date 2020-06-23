@@ -4,10 +4,8 @@
 #ifndef ADMMPD_COLLISION_H_
 #define ADMMPD_COLLISION_H_
 
-#include <Eigen/Sparse>
-#include <Eigen/Geometry>
-#include <vector>
 #include "admmpd_bvh.h"
+#include "admmpd_types.h"
 
 namespace admmpd {
 
@@ -62,16 +60,23 @@ public:
         const int *faces,
         int nf);
 
-    // Unlike set_obstacles, the pointers 
-    void set_embedded(
-        const Eigen::MatrixXd *emb_barys,
-        const Eigen::VectorXi *vtx_to_tet,
-        const Eigen::MatrixXi *tets){}
+    // Updates the tetmesh BVH for self collisions
+    // TODO
+    void update_bvh(
+        const EmbeddedMeshData *mesh,
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1)
+        { (void)(mesh); (void)(x0); (void)(x1); }
 
     // Given a list of deformable vertices (the lattice)
     // perform collision detection of the surface mesh against
     // obstacles and possibly self.
-    void detect(const Eigen::MatrixXd *x0, const Eigen::MatrixXd *x1);
+    void detect(
+        const EmbeddedMeshData *mesh,
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1){
+            
+        }
 
     void jacobian(
         const Eigen::MatrixXd *x,

@@ -50,10 +50,10 @@ void EmbeddedMeshCollision::set_obstacles(
 	obs_tree.init(obs_aabbs);
 
 } // end add obstacle
-
+	/*
 void EmbeddedMeshCollision::detect(const Eigen::MatrixXd *x0, const Eigen::MatrixXd *x1)
 {
-	/*
+
 	// First, update the positions of the embedded vertex
 	// and perform collision detection against obstacles
 	int n_ev = emb_V0.rows();
@@ -93,9 +93,9 @@ void EmbeddedMeshCollision::detect(const Eigen::MatrixXd *x0, const Eigen::Matri
 	// Only bother with self collision if it
 	// is not colliding with an obstacle.
 	// This is only useful for discrete tests.
-*/
-} // end emb collision detect
 
+} // end emb collision detect
+*/
 /*
 void FloorCollider::detect(const Eigen::MatrixXd *x)
 {

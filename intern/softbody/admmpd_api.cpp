@@ -38,7 +38,7 @@
 
 struct ADMMPDInternalData {
   admmpd::Options *options;
-  admmpd::Data *data;
+  admmpd::SolverData *data;
   admmpd::EmbeddedMeshData *embmesh;
   int in_totverts; // number of input verts
 };
@@ -50,18 +50,18 @@ void admmpd_dealloc(ADMMPDInterfaceData *iface)
 
   iface->totverts = 0; // output vertices
 
-  if (iface->data)
+  if (iface->idata)
   {
-    if(iface->data->options)
-        delete iface->data->options;
-    if(iface->data->data)
-        delete iface->data->data;
-    if(iface->data->embmesh)
-        delete iface->data->embmesh;
-    delete iface->data;
+    if(iface->idata->options)
+        delete iface->idata->options;
+    if(iface->idata->data)
+        delete iface->idata->data;
+    if(iface->idata->embmesh)
+        delete iface->idata->embmesh;
+    delete iface->idata;
   }
 
-  iface->data = NULL;
+  iface->idata = NULL;
 }
 
 static int admmpd_init_with_tetgen(
@@ -133,11 +133,11 @@ static int admmpd_init_with_lattice(
   }
 
   iface->totverts = 0;
-  bool success = admmpd::EmbeddedMesh().generate(in_V,in_F,iface->data->embmesh,V);
+  bool success = admmpd::EmbeddedMesh().generate(in_V,in_F,iface->idata->embmesh,V);
   if (success)
   {
     iface->totverts = V->rows();
-    *T = iface->data->embmesh->tets;
+    *T = iface->idata->embmesh->tets;
     return 1;
   }
 
@@ -157,12 +157,12 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
   admmpd_dealloc(iface);
 
   // Generate solver data
-  iface->data = new ADMMPDInternalData();
-  iface->data->options = new admmpd::Options();
-  admmpd::Options *options = iface->data->options;
-  iface->data->data = new admmpd::Data();
-  admmpd::Data *data = iface->data->data;
-  iface->data->embmesh = new admmpd::EmbeddedMeshData();
+  iface->idata = new ADMMPDInternalData();
+  iface->idata->options = new admmpd::Options();
+  admmpd::Options *options = iface->idata->options;
+  iface->idata->data = new admmpd::SolverData();
+  admmpd::SolverData *data = iface->idata->data;
+  iface->idata->embmesh = new admmpd::EmbeddedMeshData();
 
   // Generate tets and vertices
   Eigen::MatrixXd V;
@@ -214,8 +214,8 @@ void admmpd_copy_from_bodypoint(ADMMPDInterfaceData *iface, const BodyPoint *pts
     const BodyPoint *pt = &pts[i];
     for(int j=0; j<3; ++j)
     {
-      iface->data->data->x(i,j)=pt->pos[j];
-      iface->data->data->v(i,j)=pt->vec[j];
+      iface->idata->data->x(i,j)=pt->pos[j];
+      iface->idata->data->v(i,j)=pt->vec[j];
     }
   }
 }
@@ -233,8 +233,8 @@ void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *
       BodyPoint *pt = &pts[i];
       for(int j=0; j<3; ++j)
       {
-        pt->pos[j] = iface->data->data->x(i,j);
-        pt->vec[j] = iface->data->data->v(i,j);
+        pt->pos[j] = iface->idata->data->x(i,j);
+        pt->vec[j] = iface->idata->data->v(i,j);
       }
     }
 
@@ -242,9 +242,9 @@ void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *
     // n vertices of the tet mesh are the input surface mesh.
     if (vertexCos != NULL && iface->init_mode==0 && i<iface->mesh_totverts)
     {
-      vertexCos[i][0] = iface->data->data->x(i,0);
-      vertexCos[i][1] = iface->data->data->x(i,1);
-      vertexCos[i][2] = iface->data->data->x(i,2);
+      vertexCos[i][0] = iface->idata->data->x(i,0);
+      vertexCos[i][1] = iface->idata->data->x(i,1);
+      vertexCos[i][2] = iface->idata->data->x(i,2);
     }
   } // end loop all verts
 
@@ -256,7 +256,7 @@ void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *
       {
         
         Eigen::Vector3d xi = admmpd::EmbeddedMesh().get_mapped_vertex(
-          iface->data->embmesh, &iface->data->data->x, i);
+          iface->idata->embmesh, &iface->idata->data->x, i);
         vertexCos[i][0] = xi[0];
         vertexCos[i][1] = xi[1];
         vertexCos[i][2] = xi[2];
@@ -271,12 +271,12 @@ void admmpd_solve(ADMMPDInterfaceData *iface)
   if (iface == NULL)
     return;
 
-  if (iface->data == NULL || iface->data->options == NULL || iface->data->data == NULL)
+  if (iface->idata == NULL || iface->idata->options == NULL || iface->idata->data == NULL)
     return;
 
   try
   {
-    admmpd::Solver().solve(iface->data->options,iface->data->data);
+    admmpd::Solver().solve(iface->idata->options,iface->idata->data);
   }
   catch(const std::exception &e)
   {

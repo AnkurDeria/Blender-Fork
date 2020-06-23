@@ -36,9 +36,23 @@ struct Options {
         {}
 };
 
-struct Data {
+struct TetMesh {
+    Eigen::MatrixXd x_rest; // verts at rest
+    Eigen::MatrixXi faces; // surface elements, m x 3
+    Eigen::MatrixXi tets; // internal elements, m x 4
+}; // type 0
+
+struct EmbeddedMeshData { // i.e. the lattice
+    Eigen::MatrixXd x_rest; // embedded verts at rest
+    Eigen::MatrixXi faces; // embedded faces
+    Eigen::MatrixXi tets; // lattice elements, m x 4
+    Eigen::VectorXi vtx_to_tet; // what tet vtx is embedded in, p x 1
+    Eigen::MatrixXd barys; // barycoords of the embedding, p x 4
+}; // type 1
+
+struct SolverData {
     // Set from input
-    Eigen::MatrixXi tets; // elements t x 4
+    Eigen::MatrixXi tets; // elements t x 4, copy from mesh
     Eigen::MatrixXd x; // vertices, n x 3
     Eigen::MatrixXd v; // velocity, n x 3
     // Set in compute_matrices: 
@@ -69,14 +83,6 @@ struct Data {
 	std::vector<Eigen::Vector2i> indices; // per-energy index into D (row, num rows)
 	std::vector<double> rest_volumes; // per-energy rest volume
 	std::vector<double> weights; // per-energy weights
-};
-
-struct EmbeddedMeshData { // i.e. the lattice
-    Eigen::MatrixXd x_rest; // embedded verts at rest
-    Eigen::MatrixXi faces; // embedded faces
-    Eigen::MatrixXi tets; // lattice elements, m x 4
-    Eigen::VectorXi vtx_to_tet; // what tet vtx is embedded in, p x 1
-    Eigen::MatrixXd barys; // barycoords of the embedding, p x 4
 };
 
 } // namespace admmpd
