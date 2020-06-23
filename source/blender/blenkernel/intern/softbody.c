@@ -3644,6 +3644,10 @@ static void admmpd_update_collider(
   Collection *collection,
   Object *vertexowner)
 {
+  SoftBody *sb = vertexowner->soft;
+  if (sb->admmpd == NULL)
+    return;
+
   unsigned int numobjects;
   Object **objects = BKE_collision_objects_create(
       depsgraph,
@@ -3652,18 +3656,67 @@ static void admmpd_update_collider(
       &numobjects,
       eModifierType_Collision);
 
+  // How many faces and vertices do we need to allocate?
+  int tot_verts = 0;
+  int tot_faces = 0;
   for (int i = 0; i < numobjects; ++i) {
     Object *ob = objects[i];
     if (ob->type == OB_MESH) {
       if (ob->pd && ob->pd->deflect){
-        ccd_Mesh *ccdmesh = ccd_mesh_make(ob);
-        printf("tri num %d\n", ccdmesh->tri_num);
-        ccd_mesh_free(ccdmesh);
+        CollisionModifierData *cmd = (CollisionModifierData *)
+          BKE_modifiers_findby_type(ob, eModifierType_Collision);
+        if (!cmd)
+          continue;
+        tot_verts += cmd->mvert_num;
+        tot_faces += cmd->tri_num;
       }
-      //ccd_build_deflector_hash_single(hash, ob);
     }
   }
 
+  float *obs_v0 = MEM_callocN(sizeof(float)*3*tot_verts, "obs_v0");
+  float *obs_v1 = MEM_callocN(sizeof(float)*3*tot_verts, "obs_v1");
+  unsigned int *obs_faces = MEM_callocN(sizeof(unsigned int)*3*tot_faces, "obs_faces");
+
+  // Copy over vertices and faces
+  int curr_verts = 0;
+  int curr_faces = 0;
+  for (int i = 0; i < numobjects; ++i) {
+    Object *ob = objects[i];
+    if (ob->type == OB_MESH) {
+      if (ob->pd && ob->pd->deflect){
+        CollisionModifierData *cmd = (CollisionModifierData *)
+          BKE_modifiers_findby_type(ob, eModifierType_Collision);
+        if (!cmd)
+          continue;
+
+        for (int j=0; j<cmd->mvert_num; ++j) {
+          int v_idx = j*3 + curr_verts;
+          for (int k=0; k<3; ++k) { 
+            obs_v0[v_idx+k] = cmd->x[j].co[k];
+            obs_v1[v_idx+k] = cmd->xnew[j].co[k];
+          }
+        }
+
+        for (int j=0; j<cmd->tri_num; ++j) {
+          int f_idx = j*3 + curr_faces;
+          for (int k=0; k<3; ++k) { 
+            obs_faces[f_idx+k] = cmd->tri[j].tri[k] + curr_verts;
+          }
+        }
+
+        curr_verts += cmd->mvert_num;
+        curr_faces += cmd->tri_num;
+      }
+    }
+  }
+
+  // Update via API
+  admmpd_update_obstacles(sb->admmpd, obs_v0, obs_v1, tot_verts, obs_faces, tot_faces);
+
+  // Cleanup
+  MEM_freeN(obs_v0);
+  MEM_freeN(obs_v1);
+  MEM_freeN(obs_faces);
   BKE_collision_objects_free(objects);
 }
 

@@ -2,12 +2,15 @@
 // Distributed under the MIT License.
 
 #include "admmpd_collision.h"
+#include "admmpd_bvh_traverse.h"
 #include "BLI_assert.h"
+#include "BLI_task.h"
+#include "BLI_threads.h"
 
 namespace admmpd {
 using namespace Eigen;
 
-EmbeddedMeshCollision::VFCollisionPair::VFCollisionPair() :
+VFCollisionPair::VFCollisionPair() :
     p(-1), // point
     p_is_obs(0), // 0 or 1
     q(-1), // face
@@ -18,7 +21,7 @@ void EmbeddedMeshCollision::set_obstacles(
 	const float *v0,
 	const float *v1,
 	int nv,
-	const int *faces,
+	const unsigned int *faces,
 	int nf)
 {
 	if (obsdata.V0.rows() != nv)
@@ -63,7 +66,46 @@ typedef struct DetectThreadData {
 	const EmbeddedMeshCollision::ObstacleData *obsdata;
 	const Eigen::MatrixXd *x0;
 	const Eigen::MatrixXd *x1;
+	std::vector<std::vector<VFCollisionPair> > *pt_vf_pairs; // per thread pairs
 } DetectThreadData;
+
+static void parallel_detect(
+	void *__restrict userdata,
+	const int i,
+	const TaskParallelTLS *__restrict tls)
+{
+	// Comments say "don't use this" but how else am I supposed
+	// to get the thread ID?
+	int thread_idx = BLI_task_parallel_thread_id(tls);
+	DetectThreadData *td = (DetectThreadData*)userdata;
+	std::vector<VFCollisionPair> &tl_pairs = td->pt_vf_pairs->at(thread_idx);
+
+	int tet_idx = td->mesh->vtx_to_tet[i];
+	RowVector4i tet = td->mesh->tets.row(tet_idx);
+	Vector4d bary = td->mesh->barys.row(i);
+	
+	// First, get the surface vertex
+	Vector3d pt = 
+		bary[0] * td->x1->row(tet[0]) +
+		bary[1] * td->x1->row(tet[1]) +
+		bary[2] * td->x1->row(tet[2]) +
+		bary[3] * td->x1->row(tet[3]);
+
+	// TODO
+	// This won't work for overlapping obstacles.
+	// We would instead need something like a signed distance field
+	// or continuous collision detection.
+
+	PointInTriangleMeshTraverse<double> pt_in_mesh(
+		pt, &td->obsdata->V1, &td->obsdata->F);
+	td->obsdata->tree.traverse(pt_in_mesh);
+	if (pt_in_mesh.output.num_hits() % 2 != 1)
+		return;
+
+	// If we are inside an obstacle, we
+	// have to project to the nearest surface
+
+} // end parallel lin solve
 
 int EmbeddedMeshCollision::detect(
 	const Eigen::MatrixXd *x0,
@@ -74,10 +116,32 @@ int EmbeddedMeshCollision::detect(
 
 	update_bvh(x0,x1);
 
+	int max_threads = std::max(1,BLI_system_thread_count());
+	std::vector<std::vector<VFCollisionPair> > pt_vf_pairs
+		(max_threads, std::vector<VFCollisionPair>());
 
+	DetectThreadData thread_data = {
+		.mesh = mesh,
+		.obsdata = &obsdata,
+		.x0 = x0,
+		.x1 = x1,
+		.pt_vf_pairs = &pt_vf_pairs
+	};
 
+	int nv = x1->rows();
+	TaskParallelSettings settings;
+	BLI_parallel_range_settings_defaults(&settings);
+	BLI_task_parallel_range(0, nv, &thread_data, parallel_detect, &settings);
 
-	return 0;
+	// Combine thread-local results
+	vf_pairs.clear();
+	for (int i=0; i<max_threads; ++i)
+	{
+		const std::vector<VFCollisionPair> &tl_pairs = pt_vf_pairs[i];
+		vf_pairs.insert(vf_pairs.end(), tl_pairs.begin(), tl_pairs.end());
+	}
+
+	return vf_pairs.size();
 }
 	/*
 void EmbeddedMeshCollision::detect(const Eigen::MatrixXd *x0, const Eigen::MatrixXd *x1)

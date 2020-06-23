@@ -25,6 +25,8 @@
 #include "admmpd_types.h"
 #include "admmpd_solver.h"
 #include "admmpd_embeddedmesh.h"
+#include "admmpd_collision.h"
+
 #include "tetgen_api.h"
 #include "DNA_mesh_types.h" // Mesh
 #include "DNA_meshdata_types.h" // MVert
@@ -40,6 +42,7 @@ struct ADMMPDInternalData {
   admmpd::Options *options;
   admmpd::SolverData *data;
   admmpd::EmbeddedMeshData *embmesh;
+  admmpd::Collision *collision;
   int in_totverts; // number of input verts
 };
 
@@ -52,12 +55,14 @@ void admmpd_dealloc(ADMMPDInterfaceData *iface)
 
   if (iface->idata)
   {
-    if(iface->idata->options)
-        delete iface->idata->options;
-    if(iface->idata->data)
-        delete iface->idata->data;
-    if(iface->idata->embmesh)
-        delete iface->idata->embmesh;
+    if (iface->idata->options)
+      delete iface->idata->options;
+    if (iface->idata->data)
+      delete iface->idata->data;
+    if (iface->idata->embmesh)
+      delete iface->idata->embmesh;
+    if (iface->idata->collision)
+      delete iface->idata->collision;
     delete iface->idata;
   }
 
@@ -163,6 +168,7 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
   iface->idata->data = new admmpd::SolverData();
   admmpd::SolverData *data = iface->idata->data;
   iface->idata->embmesh = new admmpd::EmbeddedMeshData();
+  iface->idata->collision = NULL;
 
   // Generate tets and vertices
   Eigen::MatrixXd V;
@@ -173,9 +179,11 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
     default:
     case 0:
       gen_success = admmpd_init_with_tetgen(iface,in_verts,in_faces,&V,&T);
+      //iface->idata->collision = new admmpd::EmbeddedMeshData();
       break;
     case 1:
       gen_success = admmpd_init_with_lattice(iface,in_verts,in_faces,&V,&T);
+      iface->idata->collision = new admmpd::EmbeddedMeshCollision(iface->idata->embmesh);
       break;
   }
   if (!gen_success || iface->totverts==0)
@@ -218,6 +226,25 @@ void admmpd_copy_from_bodypoint(ADMMPDInterfaceData *iface, const BodyPoint *pts
       iface->idata->data->v(i,j)=pt->vec[j];
     }
   }
+}
+
+void admmpd_update_obstacles(
+    ADMMPDInterfaceData *iface,
+    float *in_verts_0,
+    float *in_verts_1,
+    int nv,
+    unsigned int *in_faces,
+    int nf)
+{
+    if (iface==NULL || in_verts_0==NULL || in_verts_1==NULL || in_faces==NULL)
+      return;
+    if (iface->idata==NULL)
+      return;
+    if (iface->idata->collision==NULL)
+      return;
+
+    iface->idata->collision->set_obstacles(
+      in_verts_0, in_verts_1, nv, in_faces, nf);
 }
 
 void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *pts, float (*vertexCos)[3])
@@ -276,7 +303,7 @@ void admmpd_solve(ADMMPDInterfaceData *iface)
 
   try
   {
-    admmpd::Solver().solve(iface->idata->options,iface->idata->data,NULL);
+    admmpd::Solver().solve(iface->idata->options,iface->idata->data,iface->idata->collision);
   }
   catch(const std::exception &e)
   {

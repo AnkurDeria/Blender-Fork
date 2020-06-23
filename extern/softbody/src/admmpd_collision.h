@@ -9,6 +9,15 @@
 
 namespace admmpd {
 
+struct VFCollisionPair {
+    int p; // point
+    int p_is_obs; // 0 or 1
+    int q; // face
+    int q_is_obs; // 0 or 1
+    VFCollisionPair();
+    Eigen::Vector3d barys;
+};
+
 // I'll update this class/structure another day.
 // For now let's get something in place to do floor collisions.
 // Probably will work better to use uber-collision class for
@@ -16,10 +25,19 @@ namespace admmpd {
 // for-all vertices loops.
 class Collision {
 public:
+    virtual ~Collision() {}
+
     // Returns the number of active constraints
     virtual int detect(
         const Eigen::MatrixXd *x0,
         const Eigen::MatrixXd *x1) = 0;
+
+    virtual void set_obstacles(
+        const float *v0,
+        const float *v1,
+        int nv,
+        const unsigned int *faces,
+        int nf) = 0;
 
 //    virtual void jacobian(
 //        const Eigen::MatrixXd *x,
@@ -32,19 +50,10 @@ public:
 // Collision detection against multiple meshes
 class EmbeddedMeshCollision : public Collision {
 public:
-    EmbeddedMeshCollision() :
-        mesh(NULL),
+    EmbeddedMeshCollision(const EmbeddedMeshData *mesh_) :
+        mesh(mesh_),
         floor_z(-std::numeric_limits<double>::max())
         {}
-
-    struct VFCollisionPair {
-        int p; // point
-        int p_is_obs; // 0 or 1
-        int q; // face
-        int q_is_obs; // 0 or 1
-        VFCollisionPair();
-        Eigen::Vector3d barys;
-    };
 
     // Obstacle data created in set_obstacles
     struct ObstacleData {
@@ -60,15 +69,8 @@ public:
         const float *v0,
         const float *v1,
         int nv,
-        const int *faces,
+        const unsigned int *faces,
         int nf);
-
-    // Ptr is stored after this call. Should be
-    // a smart ptr I guess...
-    void set_mesh(const EmbeddedMeshData *mesh_)
-    {
-        mesh=mesh_;
-    }
 
     // A floor is so common that it makes sense to hard
     // code floor collision instead of using a floor mesh.

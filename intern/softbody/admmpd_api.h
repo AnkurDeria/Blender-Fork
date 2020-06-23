@@ -54,6 +54,15 @@ int admmpd_init(ADMMPDInterfaceData*, float *in_verts, unsigned int *in_faces);
 // to internal vertex position and velocity
 void admmpd_copy_from_bodypoint(ADMMPDInterfaceData*, const BodyPoint *pts);
 
+// Sets the obstacle data for collisions
+void admmpd_update_obstacles(
+    ADMMPDInterfaceData*,
+    float *in_verts_0,
+    float *in_verts_1,
+    int nv,
+    unsigned int *in_faces,
+    int nf);
+
 // Copies internal vertex position and velocity data
 // to BodyPoints (from SoftBody) AND surface mesh vertices.
 // If pts or vertexCos is null, its skipped
