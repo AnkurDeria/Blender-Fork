@@ -5,6 +5,7 @@
 #define ADMMPD_SOLVER_H_
 
 #include "admmpd_types.h"
+#include "admmpd_collision.h"
 
 namespace admmpd {
 
@@ -21,15 +22,18 @@ public:
 
     // Solve a single time step.
     // Returns number of iterations.
+    // Collision ptr can be null.
     int solve(
         const Options *options,
-        SolverData *data);
+        SolverData *data,
+        Collision *collision);
 
 protected:
 
     void update_constraints(
         const Options *options,
-        SolverData *data);
+        SolverData *data,
+        Collision *collision);
 
     void init_solve(
         const Options *options,

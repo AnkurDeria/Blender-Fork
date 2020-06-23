@@ -16,10 +16,11 @@ namespace admmpd {
 // for-all vertices loops.
 class Collision {
 public:
-//    virtual void detect(
-//        int meshnum,
-//        const Eigen::MatrixXd *x,
-//        const Eigen::MatrixXi *faces) = 0;
+    // Returns the number of active constraints
+    virtual int detect(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1) = 0;
+
 //    virtual void jacobian(
 //        const Eigen::MatrixXd *x,
 //    	std::vector<Eigen::Triplet<double> > *trips_x,
@@ -30,27 +31,29 @@ public:
 
 // Collision detection against multiple meshes
 class EmbeddedMeshCollision : public Collision {
-protected:
-    // We progressively build a list of vertices and faces with each
-    // add_obstacle call, reindexing as needed. Then we build a tree
-    // with all of them. Alternatively we could just build separate trees and combine them.
-    Eigen::MatrixXd obs_V0, obs_V1;
-    Eigen::MatrixXi obs_F;
-    std::vector<Eigen::AlignedBox<double,3> > obs_aabbs;
-    AABBTree<double,3> obs_tree;
+public:
+    EmbeddedMeshCollision() :
+        mesh(NULL),
+        floor_z(-std::numeric_limits<double>::max())
+        {}
 
-    Eigen::MatrixXd emb_V0, emb_V1; // copy of embedded vertices
-    const Eigen::MatrixXd *emb_barys; // barys of the embedded vtx
-    const Eigen::VectorXi *vtx_to_tet; // vertex to tet embedding
-    const Eigen::MatrixXi *tets; // tets that embed faces
-
-    struct CollisionPair {
+    struct VFCollisionPair {
         int p; // point
+        int p_is_obs; // 0 or 1
         int q; // face
-        Eigen::Vector3d barys; // barycoords of collision
+        int q_is_obs; // 0 or 1
+        VFCollisionPair();
+        Eigen::Vector3d barys;
     };
 
-public:
+    // Obstacle data created in set_obstacles
+    struct ObstacleData {
+        Eigen::MatrixXd V0, V1;
+        Eigen::MatrixXi F;
+        std::vector<Eigen::AlignedBox<double,3> > aabbs;
+        AABBTree<double,3> tree;
+    } obsdata;
+
     // I don't really like having to switch up interface style, but we'll
     // do so here to avoid copies that would happen in admmpd_api.
     void set_obstacles(
@@ -60,24 +63,27 @@ public:
         const int *faces,
         int nf);
 
-    // Updates the tetmesh BVH for self collisions
-    // TODO
-    void update_bvh(
-        const EmbeddedMeshData *mesh,
-        const Eigen::MatrixXd *x0,
-        const Eigen::MatrixXd *x1)
-        { (void)(mesh); (void)(x0); (void)(x1); }
+    // Ptr is stored after this call. Should be
+    // a smart ptr I guess...
+    void set_mesh(const EmbeddedMeshData *mesh_)
+    {
+        mesh=mesh_;
+    }
 
-    // Given a list of deformable vertices (the lattice)
-    // perform collision detection of the surface mesh against
-    // obstacles and possibly self.
-    void detect(
-        const EmbeddedMeshData *mesh,
-        const Eigen::MatrixXd *x0,
-        const Eigen::MatrixXd *x1){
-            
-        }
+    // A floor is so common that it makes sense to hard
+    // code floor collision instead of using a floor mesh.
+    void set_floor(double z)
+    {
+        floor_z = z;
+    };
 
+    // Performs collision detection and stores pairs
+    int detect(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1);
+
+    // Linearizes the collision pairs about x
+    // for the constraint Kx=l
     void jacobian(
         const Eigen::MatrixXd *x,
     	std::vector<Eigen::Triplet<double> > *trips_x,
@@ -87,22 +93,24 @@ public:
     {
         
     }
+
+protected:
+    // A ptr to the embedded mesh data
+    const EmbeddedMeshData *mesh;
+    double floor_z;
+
+    // Pairs are compute on detect
+    std::vector<VFCollisionPair> vf_pairs;
+
+    // Updates the tetmesh BVH for self collisions.
+    // Called by detect()
+    // TODO
+    void update_bvh(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1)
+    { (void)(x0); (void)(x1); }
 };
-/*
-class FloorCollider : public Collider {
-public:
-    virtual void detect(
-        int meshnum,
-        const Eigen::MatrixXd *x,
-        const Eigen::MatrixXi *faces);
-    void jacobian(
-        const Eigen::MatrixXd *x,
-    	std::vector<Eigen::Triplet<double> > *trips_x,
-        std::vector<Eigen::Triplet<double> > *trips_y,
-    	std::vector<Eigen::Triplet<double> > *trips_z,
-		std::vector<double> *l);
-};
-*/
+
 } // namespace admmpd
 
 #endif // ADMMPD_COLLISION_H_

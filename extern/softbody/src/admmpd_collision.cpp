@@ -7,6 +7,13 @@
 namespace admmpd {
 using namespace Eigen;
 
+EmbeddedMeshCollision::VFCollisionPair::VFCollisionPair() :
+    p(-1), // point
+    p_is_obs(0), // 0 or 1
+    q(-1), // face
+    q_is_obs(0) // 0 or 1
+	{}
+
 void EmbeddedMeshCollision::set_obstacles(
 	const float *v0,
 	const float *v1,
@@ -14,42 +21,64 @@ void EmbeddedMeshCollision::set_obstacles(
 	const int *faces,
 	int nf)
 {
-	if (obs_V0.rows() != nv)
-		obs_V0.resize(nv,3);
+	if (obsdata.V0.rows() != nv)
+		obsdata.V0.resize(nv,3);
 
-	if (obs_V1.rows() != nv)
-		obs_V1.resize(nv,3);
+	if (obsdata.V1.rows() != nv)
+		obsdata.V1.resize(nv,3);
 
 	for (int i=0; i<nv; ++i)
 	{
 		for (int j=0; j<3; ++j)
 		{
-			obs_V0(i,j) = v0[i*3+j];
-			obs_V1(i,j) = v1[i*3+j];
+			obsdata.V0(i,j) = v0[i*3+j];
+			obsdata.V1(i,j) = v1[i*3+j];
 		}
 	}
 
-	if (obs_F.rows() != nf)
+	if (obsdata.F.rows() != nf)
 	{
-		obs_F.resize(nf,3);
-		obs_aabbs.resize(nf);
+		obsdata.F.resize(nf,3);
+		obsdata.aabbs.resize(nf);
 	}
 
 	for (int i=0; i<nf; ++i)
 	{
-		obs_aabbs[i].setEmpty();
+		obsdata.aabbs[i].setEmpty();
 		for (int j=0; j<3; ++j)
 		{
 			int fj = faces[i*3+j];
-			obs_F(i,j) = fj;
-			obs_aabbs[i].extend(obs_V0.row(fj).transpose());
-			obs_aabbs[i].extend(obs_V1.row(fj).transpose());
+			obsdata.F(i,j) = fj;
+			obsdata.aabbs[i].extend(obsdata.V0.row(fj).transpose());
+			obsdata.aabbs[i].extend(obsdata.V1.row(fj).transpose());
 		}
 	}
 
-	obs_tree.init(obs_aabbs);
+	obsdata.tree.init(obsdata.aabbs);
 
 } // end add obstacle
+
+typedef struct DetectThreadData {
+	const EmbeddedMeshData *mesh;
+	const EmbeddedMeshCollision::ObstacleData *obsdata;
+	const Eigen::MatrixXd *x0;
+	const Eigen::MatrixXd *x1;
+} DetectThreadData;
+
+int EmbeddedMeshCollision::detect(
+	const Eigen::MatrixXd *x0,
+	const Eigen::MatrixXd *x1)
+{
+	if (mesh==NULL)
+		return 0;
+
+	update_bvh(x0,x1);
+
+
+
+
+	return 0;
+}
 	/*
 void EmbeddedMeshCollision::detect(const Eigen::MatrixXd *x0, const Eigen::MatrixXd *x1)
 {
@@ -79,7 +108,7 @@ void EmbeddedMeshCollision::detect(const Eigen::MatrixXd *x0, const Eigen::Matri
 
 		// Check if we are inside the mesh.
 		// If so, find the nearest face in the rest pose.
-		PointInTriangleMeshTraverse<double> pt_in_mesh(pt, &obs_V1, &obs_F);
+		PointInTriangleMeshTraverse<double> pt_in_mesh(pt, &V1, &F);
 		obs_tree.traverse(pt_in_mesh);
 		if (pt_in_mesh.output.num_hits() % 2 == 1)
 		{

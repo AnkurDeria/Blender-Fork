@@ -49,7 +49,8 @@ bool Solver::init(
 
 int Solver::solve(
 	const Options *options,
-	SolverData *data)
+	SolverData *data,
+	Collision *collision)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -71,7 +72,7 @@ int Solver::solve(
 		solve_local_step(options,data);
 
 		// Perform collision detection and linearization
-		update_constraints(options,data);
+		update_constraints(options,data,collision);
 
 		// Solve Ax=b s.t. Kx=l
 		data->b.noalias() = data->M_xbar + data->DtW2*(data->z-data->u);
@@ -152,10 +153,16 @@ void Solver::solve_local_step(
 
 void Solver::update_constraints(
 	const Options *options,
-	SolverData *data)
+	SolverData *data,
+	Collision *collision)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
+
+	if (collision==NULL)
+		return;
+
+	collision->detect(&data->x_start, &data->x);
 
 	std::vector<double> l_coeffs;
 	std::vector<Eigen::Triplet<double> > trips_x;
@@ -163,7 +170,7 @@ void Solver::update_constraints(
     std::vector<Eigen::Triplet<double> > trips_z;
 
 	// TODO collision detection
-//	FloorCollider().jacobian(
+//	collision->jacobian(
 //		&data->x,
 //		&trips_x,
 //		&trips_y,

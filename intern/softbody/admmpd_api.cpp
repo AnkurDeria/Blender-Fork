@@ -276,7 +276,7 @@ void admmpd_solve(ADMMPDInterfaceData *iface)
 
   try
   {
-    admmpd::Solver().solve(iface->idata->options,iface->idata->data);
+    admmpd::Solver().solve(iface->idata->options,iface->idata->data,NULL);
   }
   catch(const std::exception &e)
   {

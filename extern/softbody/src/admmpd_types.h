@@ -12,6 +12,7 @@
 // TODO template type for float/double
 
 namespace admmpd {
+template <typename T> using RowSparseMatrix = Eigen::SparseMatrix<T,Eigen::RowMajor>;
 
 struct Options {
     double timestep_s; // TODO: Figure out delta time from blender api
@@ -63,7 +64,6 @@ struct SolverData {
     Eigen::MatrixXd M_xbar; // M*(x + dt v)
     Eigen::MatrixXd Dx; // D * x
     Eigen::MatrixXd b; // M xbar + DtW2(z-u)
-    template <typename T> using RowSparseMatrix = Eigen::SparseMatrix<T,Eigen::RowMajor>;
     RowSparseMatrix<double> D; // reduction matrix
     RowSparseMatrix<double> DtW2; // D'W^2
     RowSparseMatrix<double> A; // M + D'W^2D
