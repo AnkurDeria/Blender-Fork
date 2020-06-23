@@ -170,12 +170,12 @@ void Solver::update_constraints(
     std::vector<Eigen::Triplet<double> > trips_z;
 
 	// TODO collision detection
-//	collision->jacobian(
-//		&data->x,
-//		&trips_x,
-//		&trips_y,
-//		&trips_z,
-//		&l_coeffs);
+	collision->jacobian(
+		&data->x,
+		&trips_x,
+		&trips_y,
+		&trips_z,
+		&l_coeffs);
 
 	// Check number of constraints.
 	// If no constraints, clear Jacobian.

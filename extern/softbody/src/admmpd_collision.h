@@ -10,12 +10,15 @@
 namespace admmpd {
 
 struct VFCollisionPair {
-    int p; // point
+    int p_idx; // point
     int p_is_obs; // 0 or 1
-    int q; // face
+    int q_idx; // face
     int q_is_obs; // 0 or 1
+    Eigen::Vector3d pt_on_q; // point of collision on q
+//    int floor; // 0 or 1, special case
+//    Eigen::Vector3d barys;
+    Eigen::Vector3d q_n; // face normal
     VFCollisionPair();
-    Eigen::Vector3d barys;
 };
 
 // I'll update this class/structure another day.
@@ -27,11 +30,13 @@ class Collision {
 public:
     virtual ~Collision() {}
 
-    // Returns the number of active constraints
+    // Performs collision detection.
+    // Returns the number of active constraints.
     virtual int detect(
         const Eigen::MatrixXd *x0,
         const Eigen::MatrixXd *x1) = 0;
 
+    // Set the soup of obstacles for this time step.
     virtual void set_obstacles(
         const float *v0,
         const float *v1,
@@ -39,12 +44,18 @@ public:
         const unsigned int *faces,
         int nf) = 0;
 
-//    virtual void jacobian(
-//        const Eigen::MatrixXd *x,
-//    	std::vector<Eigen::Triplet<double> > *trips_x,
-//        std::vector<Eigen::Triplet<double> > *trips_y,
-//    	std::vector<Eigen::Triplet<double> > *trips_z,
-//		std::vector<double> *l) = 0;
+    // Special case for floor since it's common.
+    virtual void set_floor(double z) = 0;
+
+    // Linearize the constraints and return Jacobian tensor.
+    // Constraints are linearized about x for constraint
+    // K x = l
+    virtual void jacobian(
+        const Eigen::MatrixXd *x,
+    	std::vector<Eigen::Triplet<double> > *trips_x,
+        std::vector<Eigen::Triplet<double> > *trips_y,
+    	std::vector<Eigen::Triplet<double> > *trips_z,
+		std::vector<double> *l) = 0;
 };
 
 // Collision detection against multiple meshes
@@ -91,10 +102,7 @@ public:
     	std::vector<Eigen::Triplet<double> > *trips_x,
         std::vector<Eigen::Triplet<double> > *trips_y,
     	std::vector<Eigen::Triplet<double> > *trips_z,
-		std::vector<double> *l)
-    {
-        
-    }
+		std::vector<double> *l);
 
 protected:
     // A ptr to the embedded mesh data

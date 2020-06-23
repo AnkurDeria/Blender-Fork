@@ -53,6 +53,9 @@ protected:
         const Options *options,
         SolverData *data);
 
+    // TODO we need to compute masses
+    // based on the embedded mesh, otherwise
+    // we get super ugly dynamics.
     void compute_masses(
         const Options *options,
         SolverData *data);

@@ -69,6 +69,10 @@ bool EmbeddedMesh::generate(
 	EmbeddedMeshData *emb_mesh, // where embedding is stored
 	Eigen::MatrixXd *x_tets) // lattice vertices, n x 3
 {
+	// How big the grid cells are as a fraction
+	// of the total mesh.
+	static const double GRID_FRAC = 0.2;
+
 	if (emb_mesh==NULL)
 		return false;
 	if (x_tets==NULL)
@@ -86,7 +90,7 @@ bool EmbeddedMesh::generate(
 	aabb.extend(aabb.max()+Vector3d::Ones()*1e-6);
 	Vector3d mesh_boxmin = aabb.min();
 	Vector3d sizes = aabb.sizes();
-	double grid_dx = sizes.maxCoeff() * 0.2;
+	double grid_dx = sizes.maxCoeff() * GRID_FRAC;
 
 	// Generate vertices and tets
 	std::vector<Vector3d> verts;

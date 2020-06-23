@@ -16,6 +16,12 @@ Eigen::Vector4d point_tet(
     const Eigen::Vector3d &c,
     const Eigen::Vector3d &d);
 
+Eigen::Vector3d point_triangle(
+    const Eigen::Vector3d &p,
+    const Eigen::Vector3d &a,
+    const Eigen::Vector3d &b,
+    const Eigen::Vector3d &c);
+
 } // namespace barycoords
 
 bool point_in_tet(
