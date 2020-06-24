@@ -77,7 +77,6 @@ int Solver::solve(
 		update_constraints(options,data,collision);
 
 		// Solve Ax=b s.t. Kx=l
-		data->b.noalias() = data->M_xbar + data->DtW2*(data->z-data->u);
 		solve_conjugate_gradients(options,data);
 
 	} // end solver iters
@@ -108,9 +107,9 @@ void Solver::init_solve(
 	for (int i=0; i<nx; ++i)
 	{
 		data->v.row(i) += dt*options->grav;
-		data->M_xbar.row(i) =
-			data->m[i] * data->x.row(i) +
-			dt*data->m[i]*data->v.row(i);
+		RowVector3d xbar_i = data->x.row(i) + dt*data->v.row(i);
+		data->M_xbar.row(i) = data->m[i]*xbar_i;
+		data->x.row(i) = xbar_i; // initial geuss
 	}
 
 	// ADMM variables
@@ -229,9 +228,9 @@ void Solver::solve_conjugate_gradients(
 	BLI_assert(options != NULL);
 	int nx = data->x.rows();
 	BLI_assert(nx > 0);
-	BLI_assert(data->b.rows() == nx);
 	BLI_assert(data->A.rows() == nx);
 	BLI_assert(data->A.cols() == nx);
+	BLI_assert(data->b.rows() == nx);
 	BLI_assert(data->K[0].cols() == nx);
 	BLI_assert(data->K[1].cols() == nx);
 	BLI_assert(data->K[2].cols() == nx);
@@ -239,6 +238,9 @@ void Solver::solve_conjugate_gradients(
 	BLI_assert(data->K[0].rows() == data->l.rows());
 	BLI_assert(data->K[1].rows() == data->l.rows());
 	BLI_assert(data->K[2].rows() == data->l.rows());
+
+	// Compute RHS
+	data->b.noalias() = data->M_xbar + data->DtW2*(data->z-data->u);
 
 	// Solve Ax = b in parallel
 	auto solve_Ax_b = [](
