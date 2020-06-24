@@ -24,6 +24,7 @@
 #include "admmpd_api.h"
 #include "admmpd_types.h"
 #include "admmpd_solver.h"
+#include "admmpd_tetmesh.h"
 #include "admmpd_embeddedmesh.h"
 #include "admmpd_collision.h"
 
@@ -37,11 +38,11 @@
 
 #include <iostream>
 
-
 struct ADMMPDInternalData {
   admmpd::Options *options;
   admmpd::SolverData *data;
-  admmpd::EmbeddedMeshData *embmesh;
+  admmpd::TetMeshData *tetmesh; // init_mode=0
+  admmpd::EmbeddedMeshData *embmesh; // init_mode=1
   admmpd::Collision *collision;
   int in_totverts; // number of input verts
 };
@@ -59,6 +60,8 @@ void admmpd_dealloc(ADMMPDInterfaceData *iface)
       delete iface->idata->options;
     if (iface->idata->data)
       delete iface->idata->data;
+    if (iface->idata->tetmesh)
+      delete iface->idata->tetmesh;
     if (iface->idata->embmesh)
       delete iface->idata->embmesh;
     if (iface->idata->collision)
@@ -71,7 +74,7 @@ void admmpd_dealloc(ADMMPDInterfaceData *iface)
 
 static int admmpd_init_with_tetgen(
   ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_faces,
-  Eigen::MatrixXd *V, Eigen::MatrixXi *T)
+  Eigen::MatrixXd *V, Eigen::MatrixXi *T, Eigen::VectorXd *m)
 {
   TetGenRemeshData tg;
   init_tetgenremeshdata(&tg);
@@ -90,11 +93,23 @@ static int admmpd_init_with_tetgen(
   V->resize(nv,3);
   T->resize(nt,4);
   V->setZero();
+  iface->idata->tetmesh->faces.resize(iface->mesh_totfaces,3);
+  iface->idata->tetmesh->x_rest.resize(nv,3);
+  iface->idata->tetmesh->tets.resize(nt,3);
+  for (int i=0; i<iface->mesh_totfaces; ++i)
+  {
+    for (int j=0; j<3; ++j)
+    {
+      iface->idata->tetmesh->faces(i,j) = in_faces[i*3+j];
+    } 
+  }
+
   for (int i=0; i<nv; ++i)
   {
     for (int j=0; j<3; ++j)
     {
       V->operator()(i,j) = tg.out_verts[i*3+j];
+      iface->idata->tetmesh->x_rest(i,j) = tg.out_verts[i*3+j];
     }
   }
   T->setZero();
@@ -104,7 +119,12 @@ static int admmpd_init_with_tetgen(
     T->operator()(i,1) = tg.out_tets[i*4+1];
     T->operator()(i,2) = tg.out_tets[i*4+2];
     T->operator()(i,3) = tg.out_tets[i*4+3];
+    iface->idata->tetmesh->tets.row(i) = T->row(i);
   }
+
+  admmpd::TetMesh().compute_masses(
+       iface->idata->tetmesh, V, m);
+
   // Clean up tetgen data
   MEM_freeN(tg.out_tets);
   MEM_freeN(tg.out_facets);
@@ -114,7 +134,7 @@ static int admmpd_init_with_tetgen(
 
 static int admmpd_init_with_lattice(
   ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_faces,
-  Eigen::MatrixXd *V, Eigen::MatrixXi *T)
+  Eigen::MatrixXd *V, Eigen::MatrixXi *T, Eigen::VectorXd *m)
 {
 
   int nv = iface->mesh_totverts;
@@ -141,6 +161,11 @@ static int admmpd_init_with_lattice(
   bool success = admmpd::EmbeddedMesh().generate(in_V,in_F,iface->idata->embmesh,V);
   if (success)
   {
+    admmpd::EmbeddedMesh().compute_masses(
+      iface->idata->embmesh,
+      &iface->idata->embmesh->x_rest,
+      V, m);
+  
     iface->totverts = V->rows();
     *T = iface->idata->embmesh->tets;
     return 1;
@@ -167,24 +192,26 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
   admmpd::Options *options = iface->idata->options;
   iface->idata->data = new admmpd::SolverData();
   admmpd::SolverData *data = iface->idata->data;
+  iface->idata->tetmesh = new admmpd::TetMeshData();
   iface->idata->embmesh = new admmpd::EmbeddedMeshData();
   iface->idata->collision = NULL;
 
   // Generate tets and vertices
-  Eigen::MatrixXd V;
-  Eigen::MatrixXi T;
+  Eigen::MatrixXd V; // defo verts
+  Eigen::MatrixXi T; // defo tets
+  Eigen::VectorXd m; // masses
   int gen_success = 0;
   switch (iface->init_mode)
   {
     default:
-    case 0:
-      gen_success = admmpd_init_with_tetgen(iface,in_verts,in_faces,&V,&T);
-      //iface->idata->collision = new admmpd::EmbeddedMeshData();
-      break;
-    case 1:
-      gen_success = admmpd_init_with_lattice(iface,in_verts,in_faces,&V,&T);
+    case 0: {
+      gen_success = admmpd_init_with_tetgen(iface,in_verts,in_faces,&V,&T,&m);
+      //iface->idata->collision = new admmpd::TetMeshCollision();
+      } break;
+    case 1: {
+      gen_success = admmpd_init_with_lattice(iface,in_verts,in_faces,&V,&T,&m);
       iface->idata->collision = new admmpd::EmbeddedMeshCollision(iface->idata->embmesh);
-      break;
+    } break;
   }
   if (!gen_success || iface->totverts==0)
   {
@@ -196,7 +223,7 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
   bool init_success = false;
   try
   {
-    init_success = admmpd::Solver().init(V, T, options, data);
+    init_success = admmpd::Solver().init(V, T, m, options, data);
   }
   catch(const std::exception &e)
   {

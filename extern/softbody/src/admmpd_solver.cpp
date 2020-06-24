@@ -27,6 +27,7 @@ typedef struct ThreadData {
 bool Solver::init(
     const Eigen::MatrixXd &V,
 	const Eigen::MatrixXi &T,
+	const Eigen::VectorXd &m,
     const Options *options,
     SolverData *data)
 {
@@ -41,6 +42,7 @@ bool Solver::init(
 	data->v.resize(V.rows(),3);
 	data->v.setZero();
 	data->tets = T;
+	data->m = m;
 	if (!compute_matrices(options,data))
 		return false;
 
@@ -105,7 +107,7 @@ void Solver::init_solve(
 	data->x_start = data->x;
 	for (int i=0; i<nx; ++i)
 	{
-		data->v.row(i) += options->grav;
+		data->v.row(i) += dt*options->grav;
 		data->M_xbar.row(i) =
 			data->m[i] * data->x.row(i) +
 			dt*data->m[i]*data->v.row(i);
@@ -143,7 +145,8 @@ void Solver::solve_local_step(
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
-	int ne = data->rest_volumes.size();
+	data->Dx.noalias() = data->D * data->x;
+	int ne = data->indices.size();
 	BLI_assert(ne > 0);
   	ThreadData thread_data = {.options=options, .data = data};
 	TaskParallelSettings settings;
@@ -191,7 +194,9 @@ void Solver::update_constraints(
 	}
 
 	// Otherwise update the data.
-	data->l = Map<VectorXd>(l_coeffs.data(),nc);
+	data->l.resize(nc);
+	for (int i=0; i<nc; ++i)
+		data->l[i] = l_coeffs[i];
 	data->K[0].resize(nc,nx);
 	data->K[0].setFromTriplets(trips_x.begin(),trips_x.end());
 	data->K[1].resize(nc,nx);
@@ -342,8 +347,6 @@ bool Solver::compute_matrices(
 		data->v.resize(nx,3);
 		data->v.setZero();
 	}
-	if (data->m.rows() != nx)
-		compute_masses(options,data);
 
 	// Add per-element energies to data
 	std::vector<Triplet<double> > trips;
@@ -396,46 +399,6 @@ bool Solver::compute_matrices(
 	return true;
 
 } // end compute matrices
-
-void Solver::compute_masses(
-	const Options *options,
-	SolverData *data)
-{
-	BLI_assert(data != NULL);
-	BLI_assert(options != NULL);
-
-	// Source: https://github.com/mattoverby/mclscene/blob/master/include/MCL/TetMesh.hpp
-	// Computes volume-weighted masses for each vertex
-	// density_kgm3 is the unit-volume density
-	data->m.resize(data->x.rows());
-	data->m.setZero();
-	int n_tets = data->tets.rows();
-	for (int t=0; t<n_tets; ++t)
-	{
-		RowVector4i tet = data->tets.row(t);
-		RowVector3d tet0 = data->x.row(tet[0]);
-		Matrix3d edges;
-		edges.col(0) = data->x.row(tet[1]) - tet0;
-		edges.col(1) = data->x.row(tet[2]) - tet0;
-		edges.col(2) = data->x.row(tet[3]) - tet0;
-		double v = std::abs((edges).determinant()/6.f);
-		double tet_mass = options->density_kgm3 * v;
-		data->m[tet[0]] += tet_mass / 4.f;
-		data->m[tet[1]] += tet_mass / 4.f;
-		data->m[tet[2]] += tet_mass / 4.f;
-		data->m[tet[3]] += tet_mass / 4.f;
-	}
-	// Verify masses
-	int nx = data->m.rows();
-	for (int i=0; i<nx; ++i)
-	{
-		if (data->m[i] <= 0.0)
-		{
-			printf("**Solver::compute_masses Error: unreferenced vertex\n");
-			data->m[i]=1;
-		}
-	}
-} // end compute masses
 
 void Solver::append_energies(
 	const Options *options,

@@ -17,6 +17,7 @@ public:
     bool init(
         const Eigen::MatrixXd &V, // vertices
         const Eigen::MatrixXi &T, // tets
+        const Eigen::VectorXd &m, // per-vert masses
         const Options *options,
         SolverData *data);
 
@@ -50,13 +51,6 @@ protected:
         SolverData *data);
 
     bool compute_matrices(
-        const Options *options,
-        SolverData *data);
-
-    // TODO we need to compute masses
-    // based on the embedded mesh, otherwise
-    // we get super ugly dynamics.
-    void compute_masses(
         const Options *options,
         SolverData *data);
 

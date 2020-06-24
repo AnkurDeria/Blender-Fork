@@ -3540,32 +3540,6 @@ static void sbStoreLastFrame(struct Depsgraph *depsgraph, Object *object, float 
   object_orig->soft->last_frame = framenr;
 }
 
-/*
-static void admmpd_copy_to_softbody(Object *ob)
-{
-  SoftBody *sb = ob->soft;
-  ADMMPDInterfaceData *admmpd = sb->admmpd;
-  if (admmpd == NULL)
-    return;
-
-  if (sb->totpoint != admmpd->totverts)
-  {
-    printf("**admm_copy_to_softbody error: DOF missmatch");
-    return;
-  }
-
-  for (int i=0; i<admmpd->totverts; ++i)
-  {
-    BodyPoint *pt = &sb->bpoint[i];
-    for (int j=0; j<3; ++j)
-    {
-      pt->pos[j] = admmpd->verts[i*3+j];
-      pt->vec[j] = admmpd->vel[i*3+j];
-    }
-  }
-}
-*/
-
 static void init_admmpd_interface(Object *ob, float (*vertexCos)[3])
 {
   if(ob->type != OB_MESH)

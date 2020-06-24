@@ -20,28 +20,31 @@ struct Options {
     int max_cg_iters;
     double mult_k; // stiffness multiplier for constraints
     double min_res; // min residual for CG solver
-    double density_kgm3; // unit-volume density
     double youngs; // Young's modulus // TODO variable per-tet
     double poisson; // Poisson ratio // TODO variable per-tet
     Eigen::Vector3d grav;
     Options() :
-        timestep_s(1.0/100.0),
-        max_admm_iters(40),
-        max_cg_iters(20),
+        timestep_s(1.0/24.0),
+        max_admm_iters(100),
+        max_cg_iters(10),
         mult_k(1),
         min_res(1e-6),
-        density_kgm3(1100),
-        youngs(100000000),
-        poisson(0.399),
+        youngs(10000000),
+        poisson(0.299),
         grav(0,0,-9.8)
         {}
 };
 
-struct TetMesh {
+// I think eventually I'll make the mesh
+// a virtual class with mapping functions.
+// That might clean up the API/interface a bit.
+// Will work out what we need for collisions and such first.
+
+struct TetMeshData {
     Eigen::MatrixXd x_rest; // verts at rest
     Eigen::MatrixXi faces; // surface elements, m x 3
     Eigen::MatrixXi tets; // internal elements, m x 4
-}; // type 0
+};
 
 struct EmbeddedMeshData { // i.e. the lattice
     Eigen::MatrixXd x_rest; // embedded verts at rest

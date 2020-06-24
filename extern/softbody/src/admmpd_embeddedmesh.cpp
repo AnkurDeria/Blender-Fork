@@ -255,6 +255,58 @@ bool EmbeddedMesh::generate(
 
 } // end gen lattice
 
+void EmbeddedMesh::compute_masses(
+	EmbeddedMeshData *emb_mesh, // where embedding is stored
+	const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
+	const Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
+	Eigen::VectorXd *masses_tets, // masses of the lattice verts
+	double density_kgm3)
+{
+	BLI_assert(emb_mesh != NULL);
+	BLI_assert(x_embed != NULL);
+	BLI_assert(x_tets != NULL);
+	BLI_assert(x_tets->rows() > 0);
+	BLI_assert(x_tets->cols() == 3);
+	BLI_assert(masses_tets != NULL);
+	BLI_assert(density_kgm3 > 0);
+
+	// TODO
+	// map the area of the surface to the tet vertices
+
+	// Source: https://github.com/mattoverby/mclscene/blob/master/include/MCL/TetMesh.hpp
+	// Computes volume-weighted masses for each vertex
+	// density_kgm3 is the unit-volume density
+	int nx = x_tets->rows();
+	masses_tets->resize(nx);
+	masses_tets->setZero();
+	int n_tets = emb_mesh->tets.rows();
+	for (int t=0; t<n_tets; ++t)
+	{
+		RowVector4i tet = emb_mesh->tets.row(t);
+		RowVector3d tet_v0 = x_tets->row(tet[0]);
+		Matrix3d edges;
+		edges.col(0) = x_tets->row(tet[1]) - tet_v0;
+		edges.col(1) = x_tets->row(tet[2]) - tet_v0;
+		edges.col(2) = x_tets->row(tet[3]) - tet_v0;
+		double vol = std::abs((edges).determinant()/6.f);
+		double tet_mass = density_kgm3 * vol;
+		masses_tets->operator[](tet[0]) += tet_mass / 4.f;
+		masses_tets->operator[](tet[1]) += tet_mass / 4.f;
+		masses_tets->operator[](tet[2]) += tet_mass / 4.f;
+		masses_tets->operator[](tet[3]) += tet_mass / 4.f;
+	}
+
+	// Verify masses
+	for (int i=0; i<nx; ++i)
+	{
+		if (masses_tets->operator[](i) <= 0.0)
+		{
+			printf("**EmbeddedMesh::compute_masses Error: unreferenced vertex\n");
+			masses_tets->operator[](i)=1;
+		}
+	}
+} // end compute masses
+
 typedef struct FindTetThreadData {
 	AABBTree<double,3> *tree;
 	EmbeddedMeshData *emb_mesh; // thread sets vtx_to_tet and barys

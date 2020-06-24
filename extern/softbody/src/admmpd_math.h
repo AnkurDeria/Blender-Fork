@@ -5,6 +5,7 @@
 #define ADMMPD_MATH_H_
 
 #include <Eigen/Geometry>
+#include <Eigen/Sparse>
 
 namespace admmpd {
 namespace barycoords {

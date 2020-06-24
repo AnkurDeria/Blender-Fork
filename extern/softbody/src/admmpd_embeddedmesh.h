@@ -1,8 +1,8 @@
 // Copyright Matt Overby 2020.
 // Distributed under the MIT License.
 
-#ifndef ADMMPD_LATTICE_H_
-#define ADMMPD_LATTICE_H_
+#ifndef ADMMPD_EMBEDDEDMESH_H_
+#define ADMMPD_EMBEDDEDMESH_H_
 
 #include "admmpd_types.h"
 
@@ -23,6 +23,15 @@ public:
         const Eigen::MatrixXd *x_data,
         int idx);
 
+    // Given an embedding, compute masses
+    // for the lattice vertices
+    void compute_masses(
+        EmbeddedMeshData *emb_mesh, // where embedding is stored
+        const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
+        const Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
+        Eigen::VectorXd *masses_tets, // masses of the lattice verts
+        double density_kgm3 = 1100);
+
 protected:
 
     // Returns true on success
@@ -36,4 +45,4 @@ protected:
 
 } // namespace admmpd
 
-#endif // ADMMPD_LATTICE_H_
+#endif // ADMMPD_EMBEDDEDMESH_H_

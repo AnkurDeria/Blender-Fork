@@ -43,6 +43,8 @@ set(SRC
   src/admmpd_math.cpp
   src/admmpd_solver.h
   src/admmpd_solver.cpp
+  src/admmpd_tetmesh.h
+  src/admmpd_tetmesh.cpp
   src/admmpd_types.h
 )
 
