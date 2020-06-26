@@ -30,7 +30,7 @@ public:
         const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
         const Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
         Eigen::VectorXd *masses_tets, // masses of the lattice verts
-        double density_kgm3 = 1100);
+        double density_kgm3 = 2100);
 
 protected:
 

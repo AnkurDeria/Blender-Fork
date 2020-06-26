@@ -25,11 +25,11 @@ struct Options {
     Eigen::Vector3d grav;
     Options() :
         timestep_s(1.0/24.0),
-        max_admm_iters(100),
+        max_admm_iters(50),
         max_cg_iters(10),
         mult_k(1),
         min_res(1e-6),
-        youngs(10000000),
+        youngs(1000000),
         poisson(0.299),
         grav(0,0,-9.8)
         {}
@@ -76,7 +76,7 @@ struct SolverData {
 	Eigen::SimplicialLDLT<Eigen::SparseMatrix<double> > ldltA;
     struct CGData { // Temporaries used in conjugate gradients
         RowSparseMatrix<double> A[3]; // (M + D'W^2D) + k * Kt K
-        Eigen::MatrixXd b; // M xbar + DtW2(z-u) + Kt l
+        Eigen::MatrixXd b; // M xbar + DtW2(z-u) + k Kt l
         Eigen::MatrixXd r; // residual
         Eigen::MatrixXd z;
         Eigen::MatrixXd p;

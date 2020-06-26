@@ -247,8 +247,6 @@ int EmbeddedMeshCollision::detect(
 	return vf_pairs.size();
 } // end detect
 
-static Vector3d vx0(0,0,0);
-
 void EmbeddedMeshCollision::jacobian(
 	const Eigen::MatrixXd *x,
 	std::vector<Eigen::Triplet<double> > *trips_x,
@@ -286,7 +284,8 @@ void EmbeddedMeshCollision::jacobian(
 			int tet_idx = mesh->vtx_to_tet[emb_p_idx];
 			RowVector4i tet = mesh->tets.row(tet_idx);
 
-			// Basically a pin constraint
+			// Okay this is pretty ugly. I'm going to have to think about
+			// whether or not this is reasonable.
 			for (int j=0; j<3; ++j)
 			{
 				int c_idx = l->size();

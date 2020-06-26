@@ -71,7 +71,7 @@ bool EmbeddedMesh::generate(
 {
 	// How big the grid cells are as a fraction
 	// of the total mesh.
-	static const double GRID_FRAC = 0.2;
+	static const double GRID_FRAC = 0.15;
 
 	if (emb_mesh==NULL)
 		return false;

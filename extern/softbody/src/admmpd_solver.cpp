@@ -46,6 +46,8 @@ bool Solver::init(
 	if (!compute_matrices(options,data))
 		return false;
 
+	printf("Solver::init:\n\tNum tets: %d\n\tNum verts: %d\n",T.rows(),V.rows());
+
 	return true;
 } // end init
 
@@ -304,21 +306,21 @@ void Solver::solve_conjugate_gradients(
 
 	for (int iter=0; iter<options->max_cg_iters; ++iter)
 	{
-		for( int i=0; i<3; ++i )
+		for (int i=0; i<3; ++i)
 			cgdata->Ap.col(i).noalias() = cgdata->A[i]*cgdata->p.col(i);
 
 		double p_dot_Ap = mat_inner(cgdata->p,cgdata->Ap);
-		if( p_dot_Ap==0.0 )
+		if (p_dot_Ap==0.0)
 			break;
 
 		double zk_dot_rk = mat_inner(cgdata->z,cgdata->r);
-		if( zk_dot_rk==0.0 )
+		if (zk_dot_rk==0.0)
 			break;
 
 		double alpha = zk_dot_rk / p_dot_Ap;
 		data->x.noalias() += alpha * cgdata->p;
 		cgdata->r.noalias() -= alpha * cgdata->Ap;
-		if( cgdata->r.lpNorm<Infinity>() < eps )
+		if (cgdata->r.lpNorm<Infinity>() < eps)
 			break;
 
 		solve_Ax_b(data,&cgdata->z,&cgdata->r);
