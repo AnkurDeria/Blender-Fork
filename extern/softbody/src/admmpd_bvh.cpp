@@ -23,7 +23,7 @@ void AABBTree<T,DIM>::init(const std::vector<AABB> &leaves)
     if (np==0)
         return;
     std::vector<int> queue(np);
-	std::iota(queue.begin(), queue.end(), 0);
+    std::iota(queue.begin(), queue.end(), 0);
     create_children(root.get(), queue, leaves);
 }
 

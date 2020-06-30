@@ -4,6 +4,7 @@
 #include "admmpd_solver.h"
 #include "admmpd_energy.h"
 #include "admmpd_collision.h"
+#include "admmpd_linsolve.h"
 
 #include <Eigen/Geometry>
 #include <Eigen/Sparse>
@@ -80,6 +81,7 @@ int Solver::solve(
 
 		// Solve Ax=b s.t. Kx=l
 		solve_conjugate_gradients(options,data);
+		//GaussSeidel().solve(options,data);
 
 	} // end solver iters
 

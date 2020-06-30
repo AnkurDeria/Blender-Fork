@@ -39,6 +39,8 @@ set(SRC
   src/admmpd_embeddedmesh.cpp
   src/admmpd_energy.h
   src/admmpd_energy.cpp
+  src/admmpd_linsolve.h
+  src/admmpd_linsolve.cpp
   src/admmpd_math.h
   src/admmpd_math.cpp
   src/admmpd_solver.h

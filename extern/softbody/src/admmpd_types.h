@@ -18,6 +18,7 @@ struct Options {
     double timestep_s; // TODO: Figure out delta time from blender api
     int max_admm_iters;
     int max_cg_iters;
+    int max_gs_iters;
     double mult_k; // stiffness multiplier for constraints
     double min_res; // min residual for CG solver
     double youngs; // Young's modulus // TODO variable per-tet
@@ -27,6 +28,7 @@ struct Options {
         timestep_s(1.0/24.0),
         max_admm_iters(50),
         max_cg_iters(10),
+        max_gs_iters(30),
         mult_k(1),
         min_res(1e-6),
         youngs(1000000),
@@ -82,6 +84,12 @@ struct SolverData {
         Eigen::MatrixXd p;
         Eigen::MatrixXd Ap; // A * p
     } cgdata;
+    struct GSData { // Temporaries used in Gauss-Seidel
+		RowSparseMatrix<double> KtK; // k * Kt K, different dim than A!
+        Eigen::MatrixXd last_dx; // last GS iter change in x
+		std::vector<std::vector<int> > A_colors; // colors of just A matrix
+        std::vector<std::vector<int> > A_KtK_colors; // colors of just A+KtK
+	} gsdata;
     // Set in append_energies:
 	std::vector<Eigen::Vector2i> indices; // per-energy index into D (row, num rows)
 	std::vector<double> rest_volumes; // per-energy rest volume
