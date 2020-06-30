@@ -67,7 +67,8 @@ bool EmbeddedMesh::generate(
 	const Eigen::MatrixXd &V, // embedded verts
 	const Eigen::MatrixXi &F, // embedded faces
 	EmbeddedMeshData *emb_mesh, // where embedding is stored
-	Eigen::MatrixXd *x_tets) // lattice vertices, n x 3
+	Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
+	bool trim_lattice)
 {
 	// How big the grid cells are as a fraction
 	// of the total mesh.
@@ -191,9 +192,12 @@ bool EmbeddedMesh::generate(
 			.tets = &tets,
 			.keep_tet = &keep_tet
 		};
-		TaskParallelSettings settings;
-		BLI_parallel_range_settings_defaults(&settings);
-		BLI_task_parallel_range(0, nt0, &thread_data, parallel_keep_tet, &settings);
+		if (trim_lattice)
+		{
+			TaskParallelSettings settings;
+			BLI_parallel_range_settings_defaults(&settings);
+			BLI_task_parallel_range(0, nt0, &thread_data, parallel_keep_tet, &settings);
+		}
 
 		// Loop over tets and remove as needed.
 		// Mark referenced vertices to compute a mapping.

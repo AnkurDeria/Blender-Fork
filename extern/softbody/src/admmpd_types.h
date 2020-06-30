@@ -32,7 +32,7 @@ struct Options {
         mult_k(1),
         min_res(1e-6),
         youngs(1000000),
-        poisson(0.299),
+        poisson(0.399),
         grav(0,0,-9.8)
         {}
 };
@@ -72,24 +72,25 @@ struct SolverData {
     RowSparseMatrix<double> D; // reduction matrix
     RowSparseMatrix<double> DtW2; // D'W^2
     RowSparseMatrix<double> A; // M + D'W^2D
-    RowSparseMatrix<double> K[3]; // constraint Jacobian
-    Eigen::VectorXd l; // constraint rhs (Kx=l)
+    RowSparseMatrix<double> C; // linearized constraints
+    Eigen::VectorXd d; // constraints rhs
     double spring_k; // constraint stiffness
 	Eigen::SimplicialLDLT<Eigen::SparseMatrix<double> > ldltA;
-    struct CGData { // Temporaries used in conjugate gradients
-        RowSparseMatrix<double> A[3]; // (M + D'W^2D) + k * Kt K
-        Eigen::MatrixXd b; // M xbar + DtW2(z-u) + k Kt l
-        Eigen::MatrixXd r; // residual
-        Eigen::MatrixXd z;
-        Eigen::MatrixXd p;
-        Eigen::MatrixXd Ap; // A * p
-    } cgdata;
-    struct GSData { // Temporaries used in Gauss-Seidel
-		RowSparseMatrix<double> KtK; // k * Kt K, different dim than A!
-        Eigen::MatrixXd last_dx; // last GS iter change in x
-		std::vector<std::vector<int> > A_colors; // colors of just A matrix
-        std::vector<std::vector<int> > A_KtK_colors; // colors of just A+KtK
-	} gsdata;
+    struct GlobalStepData { // Temporaries used in global step
+        RowSparseMatrix<double> A3; // (M + D'W^2D) n3 x n3
+        RowSparseMatrix<double> CtC; // k * Ct C
+        RowSparseMatrix<double> A3_plus_CtC;
+        Eigen::VectorXd Ctd; // k * Ct d
+        Eigen::VectorXd b3_plus_Ctd; // M xbar + DtW2(z-u) + k Kt l
+        // Used by Conjugate-Gradients:
+        Eigen::VectorXd r; // residual
+        Eigen::VectorXd z; // auxilary
+        Eigen::VectorXd p; // direction
+        Eigen::VectorXd A3p; // A3 * p
+        // Used by Gauss-Seidel:
+        std::vector<std::vector<int> > A_colors; // colors of (original) A matrix
+        std::vector<std::vector<int> > A3_plus_CtC_colors; // colors of A3+KtK
+    } gsdata;
     // Set in append_energies:
 	std::vector<Eigen::Vector2i> indices; // per-energy index into D (row, num rows)
 	std::vector<double> rest_volumes; // per-energy rest volume

@@ -20,8 +20,7 @@ VFCollisionPair::VFCollisionPair() :
     p_is_obs(0), // 0 or 1
     q_idx(-1), // face
     q_is_obs(0), // 0 or 1
-	pt_on_q(0,0,0),
-	q_n(0,0,0)
+	pt_on_q(0,0,0)
 	{}
 
 void Collision::set_obstacles(
@@ -89,7 +88,6 @@ void Collision::detect_discrete_vf(
 		pair.q_idx = -1;
 		pair.q_is_obs = 1;
 		pair.pt_on_q = Vector3d(pt[0],pt[1],floor_z);
-		pair.q_n = Vector3d(0,0,1);
 	}
 
 	// Any faces to detect against?
@@ -133,18 +131,17 @@ void Collision::detect_discrete_vf(
 	pair.pt_on_q = find_nearest_tri.output.pt_on_tri;
 
 	// Compute face normal
-	BLI_assert(pair.q_idx >= 0);
-	BLI_assert(pair.q_idx < mesh_tris->rows());
-	RowVector3i tri_inds = mesh_tris->row(pair.q_idx);
-	BLI_assert(tri_inds[0]>=0 && tri_inds[0]<mesh_x->rows());
-	BLI_assert(tri_inds[1]>=0 && tri_inds[1]<mesh_x->rows());
-	BLI_assert(tri_inds[2]>=0 && tri_inds[2]<mesh_x->rows());
-	Vector3d tri[3] = {
-		mesh_x->row(tri_inds[0]),
-		mesh_x->row(tri_inds[1]),
-		mesh_x->row(tri_inds[2])
-	};
-	pair.q_n = ((tri[1]-tri[0]).cross(tri[2]-tri[0])).normalized();
+//	BLI_assert(pair.q_idx >= 0);
+//	BLI_assert(pair.q_idx < mesh_tris->rows());
+//	RowVector3i tri_inds = mesh_tris->row(pair.q_idx);
+//	BLI_assert(tri_inds[0]>=0 && tri_inds[0]<mesh_x->rows());
+//	BLI_assert(tri_inds[1]>=0 && tri_inds[1]<mesh_x->rows());
+//	BLI_assert(tri_inds[2]>=0 && tri_inds[2]<mesh_x->rows());
+//	Vector3d tri[3] = {
+//		mesh_x->row(tri_inds[0]),
+//		mesh_x->row(tri_inds[1]),
+//		mesh_x->row(tri_inds[2])
+//	};
 
 //	std::stringstream ss;
 //	ss << "\nhit:" <<
@@ -247,12 +244,10 @@ int EmbeddedMeshCollision::detect(
 	return vf_pairs.size();
 } // end detect
 
-void EmbeddedMeshCollision::jacobian(
+void EmbeddedMeshCollision::linearize(
 	const Eigen::MatrixXd *x,
-	std::vector<Eigen::Triplet<double> > *trips_x,
-	std::vector<Eigen::Triplet<double> > *trips_y,
-	std::vector<Eigen::Triplet<double> > *trips_z,
-	std::vector<double> *l)
+	std::vector<Eigen::Triplet<double> > *trips,
+	std::vector<double> *d)
 {
 	BLI_assert(x != NULL);
 	BLI_assert(x->cols() == 3);
@@ -261,15 +256,44 @@ void EmbeddedMeshCollision::jacobian(
 	if (np==0)
 		return;
 
-	l->reserve((int)l->size() + np);
-	trips_x->reserve((int)trips_x->size() + np*4);
-	trips_y->reserve((int)trips_y->size() + np*4);
-	trips_z->reserve((int)trips_z->size() + np*4);
+	d->reserve((int)d->size() + np);
+	trips->reserve((int)trips->size() + np*3*4);
 
 	for (int i=0; i<np; ++i)
 	{
 		VFCollisionPair &pair = vf_pairs[i];
 		int emb_p_idx = pair.p_idx;
+
+
+    //p_idx(-1), // point
+    //p_is_obs(0), // 0 or 1
+    //q_idx(-1), // face
+    //q_is_obs(0), // 0 or 1
+//	pt_on_q(0,0,0)
+
+		// Compute normal of triangle at x
+		Vector3d q_n(0,0,0);
+		RowVector3i q_inds(-1,-1,-1);
+		std::vector<Vector3d> q_tris;
+		if (pair.q_is_obs)
+		{
+			// Special case, floor
+			if (pair.q_idx == -1)
+			{
+				q_n = Vector3d(0,0,1);
+			}
+			else
+			{
+				q_inds = obsdata.F.row(pair.q_idx);
+				q_tris = {
+					obsdata.V1.row(q_inds[0]),
+					obsdata.V1.row(q_inds[1]),
+					obsdata.V1.row(q_inds[2])
+				};
+				q_n = ((q_tris[1]-q_tris[0]).cross(q_tris[2]-q_tris[0]));
+				q_n.normalize();
+			}
+		}
 
 		// TODO: obstacle point intersecting mesh
 		if (pair.p_is_obs)
@@ -283,24 +307,14 @@ void EmbeddedMeshCollision::jacobian(
 			RowVector4d bary = mesh->barys.row(emb_p_idx);
 			int tet_idx = mesh->vtx_to_tet[emb_p_idx];
 			RowVector4i tet = mesh->tets.row(tet_idx);
-
-			// Okay this is pretty ugly. I'm going to have to think about
-			// whether or not this is reasonable.
-			for (int j=0; j<3; ++j)
+			int c_idx = d->size();
+			d->emplace_back(q_n.dot(pair.pt_on_q));
+			for (int j=0; j<4; ++j)
 			{
-				int c_idx = l->size();
-				for (int k=0; k<4; ++k)
-				{
-					if (j==0)
-						trips_x->emplace_back(c_idx, tet[k], bary[k]*pair.q_n[0]);
-					if (j==1)
-						trips_y->emplace_back(c_idx, tet[k], bary[k]*pair.q_n[1]);
-					if (j==2)
-						trips_z->emplace_back(c_idx, tet[k], bary[k]*pair.q_n[2]);
-				}
-				l->emplace_back(pair.pt_on_q[j]*pair.q_n[j]);
+				trips->emplace_back(c_idx, tet[j]*3+0, bary[j]*q_n[0]);
+				trips->emplace_back(c_idx, tet[j]*3+1, bary[j]*q_n[1]);
+				trips->emplace_back(c_idx, tet[j]*3+2, bary[j]*q_n[2]);
 			}
-
 			continue;
 		}
 

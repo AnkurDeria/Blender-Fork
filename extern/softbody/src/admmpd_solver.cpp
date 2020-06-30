@@ -18,7 +18,6 @@
 
 namespace admmpd {
 using namespace Eigen;
-template <typename T> using RowSparseMatrix = SparseMatrix<T,RowMajor>;
 
 typedef struct ThreadData {
 	const Options *options;
@@ -79,8 +78,8 @@ int Solver::solve(
 		// Perform collision detection and linearization
 		update_constraints(options,data,collision);
 
-		// Solve Ax=b s.t. Kx=l
-		solve_conjugate_gradients(options,data);
+		// Solve Ax=b s.t. Cx=d
+		ConjugateGradients().solve(options,data);
 		//GaussSeidel().solve(options,data);
 
 	} // end solver iters
@@ -170,167 +169,32 @@ void Solver::update_constraints(
 
 	collision->detect(&data->x_start, &data->x);
 
-	std::vector<double> l_coeffs;
-	std::vector<Eigen::Triplet<double> > trips_x;
-    std::vector<Eigen::Triplet<double> > trips_y;
-    std::vector<Eigen::Triplet<double> > trips_z;
+	std::vector<double> d_coeffs;
+	std::vector<Eigen::Triplet<double> > trips;
 
 	// TODO collision detection
-	collision->jacobian(
+	collision->linearize(
 		&data->x,
-		&trips_x,
-		&trips_y,
-		&trips_z,
-		&l_coeffs);
+		&trips,
+		&d_coeffs);
 
 	// Check number of constraints.
 	// If no constraints, clear Jacobian.
 	int nx = data->x.rows();
-	int nc = l_coeffs.size();
+	int nc = d_coeffs.size();
 	if (nc==0)
 	{
-		data->l.setZero();
-		for (int i=0; i<3; ++i)
-			data->K[i].setZero();
-
+		data->d.setZero();
+		data->C.setZero();
 		return;
 	}
 
 	// Otherwise update the data.
-	data->l.resize(nc);
-	for (int i=0; i<nc; ++i)
-		data->l[i] = l_coeffs[i];
-	data->K[0].resize(nc,nx);
-	data->K[0].setFromTriplets(trips_x.begin(),trips_x.end());
-	data->K[1].resize(nc,nx);
-	data->K[1].setFromTriplets(trips_y.begin(),trips_y.end());
-	data->K[2].resize(nc,nx);
-	data->K[2].setFromTriplets(trips_z.begin(),trips_z.end());
+	data->d = Map<VectorXd>(d_coeffs.data(), d_coeffs.size());
+	data->C.resize(nc,nx*3);
+	data->C.setFromTriplets(trips.begin(),trips.end());
 
 } // end update constraints
-
-typedef struct LinSolveThreadData {
-	SolverData *data;
-	MatrixXd *ls_x;
-	MatrixXd *ls_b;
-} LinSolveThreadData;
-
-static void parallel_lin_solve(
-	void *__restrict userdata,
-	const int i,
-	const TaskParallelTLS *__restrict UNUSED(tls))
-{
-	LinSolveThreadData *td = (LinSolveThreadData*)userdata;
-	td->ls_x->col(i) = td->data->ldltA.solve(td->ls_b->col(i));
-} // end parallel lin solve
-
-void Solver::solve_conjugate_gradients(
-	const Options *options,
-	SolverData *data)
-{
-	BLI_assert(data != NULL);
-	BLI_assert(options != NULL);
-	int nx = data->x.rows();
-	BLI_assert(nx > 0);
-	BLI_assert(data->A.rows() == nx);
-	BLI_assert(data->A.cols() == nx);
-	BLI_assert(data->b.rows() == nx);
-	BLI_assert(data->K[0].cols() == nx);
-	BLI_assert(data->K[1].cols() == nx);
-	BLI_assert(data->K[2].cols() == nx);
-	BLI_assert(data->l.rows() > 0);
-	BLI_assert(data->K[0].rows() == data->l.rows());
-	BLI_assert(data->K[1].rows() == data->l.rows());
-	BLI_assert(data->K[2].rows() == data->l.rows());
-
-	// Compute RHS
-	data->b.noalias() = data->M_xbar + data->DtW2*(data->z-data->u);
-
-	// Solve Ax = b in parallel
-	auto solve_Ax_b = [](
-		SolverData *data_,
-		MatrixXd *x_,
-		MatrixXd *b_)
-	{
-		LinSolveThreadData thread_data = {.data=data_, .ls_x=x_, .ls_b=b_};
-		TaskParallelSettings settings;
-		BLI_parallel_range_settings_defaults(&settings);
-		BLI_task_parallel_range(0, 3, &thread_data, parallel_lin_solve, &settings);
-	};
-
-	// If we don't have any constraints,
-	// we don't need to perform CG
-	if (std::max(std::max(
-		data->K[0].nonZeros(),
-		data->K[1].nonZeros()),
-		data->K[2].nonZeros())==0)
-	{
-		solve_Ax_b(data,&data->x,&data->b);
-		return;
-	}
-
-	// Inner product of matrices interpreted
-	// if they were instead vectorized
-	auto mat_inner = [](
-		const MatrixXd &A,
-		const MatrixXd &B)
-	{
-		double dot = 0.0;
-		int nr = std::min(A.rows(), B.rows());
-		for( int i=0; i<nr; ++i )
-			for(int j=0; j<3; ++j)
-				dot += A(i,j)*B(i,j);
-
-		return dot;
-	};
-
-	// Update CGData
-	admmpd::SolverData::CGData *cgdata = &data->cgdata;
-	double eps = options->min_res;
-	cgdata->b = data->b;
-	if (cgdata->r.rows() != nx)
-	{
-		cgdata->r.resize(nx,3);
-		cgdata->z.resize(nx,3);
-		cgdata->p.resize(nx,3);
-		cgdata->Ap.resize(nx,3);
-	}
-
-	for (int i=0; i<3; ++i)
-	{
-		RowSparseMatrix<double> Kt = data->K[i].transpose();
-		cgdata->A[i] = data->A + data->spring_k*RowSparseMatrix<double>(Kt*data->K[i]);
-		cgdata->b.col(i).noalias() += data->spring_k*Kt*data->l;
-		cgdata->r.col(i).noalias() = cgdata->b.col(i) - cgdata->A[i]*data->x.col(i);
-	}
-	solve_Ax_b(data,&cgdata->z,&cgdata->r);
-	cgdata->p = cgdata->z;
-
-	for (int iter=0; iter<options->max_cg_iters; ++iter)
-	{
-		for (int i=0; i<3; ++i)
-			cgdata->Ap.col(i).noalias() = cgdata->A[i]*cgdata->p.col(i);
-
-		double p_dot_Ap = mat_inner(cgdata->p,cgdata->Ap);
-		if (p_dot_Ap==0.0)
-			break;
-
-		double zk_dot_rk = mat_inner(cgdata->z,cgdata->r);
-		if (zk_dot_rk==0.0)
-			break;
-
-		double alpha = zk_dot_rk / p_dot_Ap;
-		data->x.noalias() += alpha * cgdata->p;
-		cgdata->r.noalias() -= alpha * cgdata->Ap;
-		if (cgdata->r.lpNorm<Infinity>() < eps)
-			break;
-
-		solve_Ax_b(data,&cgdata->z,&cgdata->r);
-		double beta = mat_inner(cgdata->z,cgdata->r) / zk_dot_rk;
-		cgdata->p = cgdata->z + beta*cgdata->p;
-	}
-
-} // end solve conjugate gradients
 
 bool Solver::compute_matrices(
 	const Options *options,
@@ -392,9 +256,8 @@ bool Solver::compute_matrices(
 
 	// Constraint data
 	data->spring_k = options->mult_k*data->A.diagonal().maxCoeff();
-	data->l = VectorXd::Zero(1);
-	for (int i=0; i<3; ++i)
-		data->K[i].resize(1,nx);
+	data->C.resize(1,nx*3);
+	data->d = VectorXd::Zero(1);
 
 	// ADMM dual/lagrange
 	data->z.resize(n_row_D,3);
@@ -421,6 +284,10 @@ void Solver::append_energies(
 	data->weights.reserve(nt);
 	Lame lame;
 	lame.set_from_youngs_poisson(options->youngs, options->poisson);
+
+	// The possibility of having an error in energy initialization
+	// while still wanting to continue the simulation is very low.
+	// We can parallelize this step if need be.
 
 	int energy_index = 0;
 	for (int i=0; i<nt; ++i)

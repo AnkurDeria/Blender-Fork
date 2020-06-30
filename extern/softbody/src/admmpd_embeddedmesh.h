@@ -15,7 +15,8 @@ public:
         const Eigen::MatrixXd &V, // embedded verts
         const Eigen::MatrixXi &F, // embedded faces
         EmbeddedMeshData *emb_mesh, // where embedding is stored
-        Eigen::MatrixXd *x_tets); // lattice vertices, n x 3
+        Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
+        bool trim_lattice = true); // remove elements outside embedded volume
 
     // Returns the vtx mapped from x/v and tets
     Eigen::Vector3d get_mapped_vertex(

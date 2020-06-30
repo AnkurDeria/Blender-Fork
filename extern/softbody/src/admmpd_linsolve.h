@@ -8,25 +8,36 @@
 
 namespace admmpd {
 
-class GaussSeidel {
+// Preconditioned Conjugate Gradients
+class ConjugateGradients {
 public:
-	// Solves (A + KtK) x = (b + Ktl)
-	// x and b passed as separate variables
-	// for debugging/testing purposes.
 	void solve(
 		const Options *options,
 		SolverData *data);
 
 protected:
-	// Allocates data, computes colors
+	// Apply preconditioner
+	void solve_Ax_b(
+		SolverData *data,
+		Eigen::VectorXd *x,
+		Eigen::VectorXd *b);
+};
+
+// Multi-Colored Gauss-Seidel
+class GaussSeidel {
+public:
+	void solve(
+		const Options *options,
+		SolverData *data);
+
+protected:
 	void init_solve(
 		const Options *options,
 		SolverData *data);
 
-	// Computes colors of A + KtK
 	void compute_colors(
 		const RowSparseMatrix<double> *A,
-		const RowSparseMatrix<double> *KtK, // if null, just A
+		int stride,
 		std::vector<std::vector<int> > &colors);
 
 };

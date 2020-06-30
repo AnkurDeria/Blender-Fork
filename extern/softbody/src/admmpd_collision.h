@@ -52,15 +52,11 @@ public:
     // Special case for floor since it's common.
     virtual void set_floor(double z) = 0;
 
-    // Linearize the constraints and return Jacobian tensor.
-    // Constraints are linearized about x for constraint
-    // K x = l
-    virtual void jacobian(
+    // Linearize the constraints and return Jacobian.
+    virtual void linearize(
         const Eigen::MatrixXd *x,
-    	std::vector<Eigen::Triplet<double> > *trips_x,
-        std::vector<Eigen::Triplet<double> > *trips_y,
-    	std::vector<Eigen::Triplet<double> > *trips_z,
-		std::vector<double> *l) = 0;
+    	std::vector<Eigen::Triplet<double> > *trips,
+		std::vector<double> *d) = 0;
 
     // Given a point and a surface mesh,
     // perform discrete collision and create
@@ -83,7 +79,8 @@ class EmbeddedMeshCollision : public Collision {
 public:
     EmbeddedMeshCollision(const EmbeddedMeshData *mesh_) :
         mesh(mesh_),
-        floor_z(-std::numeric_limits<double>::max())
+//        floor_z(-std::numeric_limits<double>::max())
+        floor_z(0)
         {}
 
     // A floor is so common that it makes sense to hard
@@ -100,12 +97,10 @@ public:
 
     // Linearizes the collision pairs about x
     // for the constraint Kx=l
-    void jacobian(
+    void linearize(
         const Eigen::MatrixXd *x,
-    	std::vector<Eigen::Triplet<double> > *trips_x,
-        std::vector<Eigen::Triplet<double> > *trips_y,
-    	std::vector<Eigen::Triplet<double> > *trips_z,
-		std::vector<double> *l);
+    	std::vector<Eigen::Triplet<double> > *trips,
+		std::vector<double> *d);
 
 protected:
     // A ptr to the embedded mesh data

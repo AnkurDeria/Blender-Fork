@@ -44,12 +44,6 @@ protected:
         const Options *options,
         SolverData *data);
 
-    // Global step with CG:
-    // 1/2||Ax-b||^2 + k/2||Kx-l||^2
-	void solve_conjugate_gradients(
-        const Options *options,
-        SolverData *data);
-
     bool compute_matrices(
         const Options *options,
         SolverData *data);
