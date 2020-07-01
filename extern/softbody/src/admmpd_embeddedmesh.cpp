@@ -6,6 +6,7 @@
 #include "admmpd_bvh.h"
 #include "admmpd_bvh_traverse.h"
 #include <iostream>
+#include <fstream>
 #include <unordered_map>
 #include <set>
 #include "BLI_task.h" // threading
@@ -63,6 +64,153 @@ static void parallel_keep_tet(
 
 } // end parallel test if keep tet
 
+// Gen lattice with subdivision
+struct LatticeData {
+	const Eigen::MatrixXd *V;
+	std::vector<Vector3d> verts;
+	std::vector<Vector4i> tets;
+};
+
+static inline void merge_close_vertices(LatticeData *data, double eps=1e-12)
+{
+	int nv = data->verts.size();
+	std::vector<Vector3d> new_v(nv); // new verts
+	std::vector<int> idx(nv,0); // index mapping
+	std::vector<int> visited(nv,0);
+	int count = 0;
+	for (int i=0; i<nv; ++i)
+	{
+		if(!visited[i])
+		{
+			visited[i] = 1;
+			new_v[count] = data->verts[i];
+			idx[i] = count;
+			Vector3d vi = data->verts[i];
+			for (int j = i+1; j<nv; ++j)
+			{
+				if((data->verts[j]-vi).norm() < eps)
+				{
+					visited[j] = 1;
+					idx[j] = count;
+				}
+			}
+			count++;
+		}
+	}
+	new_v.resize(count);
+	data->verts = new_v;
+	int nt = data->tets.size();
+	for (int i=0; i<nt; ++i)
+	{
+		for (int j=0; j<4; ++j)
+		{
+			data->tets[i][j] = idx[data->tets[i][j]];
+		}
+	}
+}
+
+static inline void subdivide_cube(
+	LatticeData *data,
+	const std::vector<Vector3d> &cv,
+	const std::vector<int> &pts_in_box,
+	int level)
+{
+	BLI_assert((int)cv.size()==8);
+	auto add_tets_from_box = [&]()
+	{
+		Vector3d max = cv[5];
+		Vector3d min = cv[3];
+		std::vector<Vector3d> v = {
+			// Top plane, clockwise looking down
+			max,
+			Vector3d(min[0], max[1], max[2]),
+			Vector3d(min[0], max[1], min[2]),
+			Vector3d(max[0], max[1], min[2]),
+			// Bottom plane, clockwise looking down
+			Vector3d(max[0], min[1], max[2]),
+			Vector3d(min[0], min[1], max[2]),
+			min,
+			Vector3d(max[0], min[1], min[2])
+		};
+		// Add vertices and get indices of the box
+		std::vector<int> b;
+		for(int i=0; i<8; ++i)
+		{
+			b.emplace_back(data->verts.size());
+			data->verts.emplace_back(v[i]);
+		}
+		// From the box, create five new tets
+		std::vector<Vector4i> new_tets = {
+			Vector4i( b[0], b[5], b[7], b[4] ),
+			Vector4i( b[5], b[7], b[2], b[0] ),
+			Vector4i( b[5], b[0], b[2], b[1] ),
+			Vector4i( b[7], b[2], b[0], b[3] ),
+			Vector4i( b[5], b[2], b[7], b[6] )
+		};
+		for(int i=0; i<5; ++i)
+			data->tets.emplace_back(new_tets[i]);
+	};
+
+	// Add this cube because we're at bottom
+	if (level==0)
+	{
+		add_tets_from_box();
+		return;
+	}
+
+	// Only subdivide if we contain vertices
+	// Otherwise just return.
+	AlignedBox<double,3> aabb;
+	aabb.extend(cv[3]); aabb.extend(cv[5]);
+	aabb.extend(aabb.min()-Vector3d::Ones()*1e-8);
+	aabb.extend(aabb.max()+Vector3d::Ones()*1e-8);
+	std::vector<int> new_pts_in_box;
+	int nv = pts_in_box.size();
+	for (int i=0; i<nv; ++i)
+	{
+		int idx = pts_in_box[i];
+		if (aabb.contains(data->V->row(idx).transpose()))
+			new_pts_in_box.emplace_back(idx);
+	}
+	if (new_pts_in_box.size()==0)
+	{
+		add_tets_from_box();
+		return;
+	}
+
+	// cv are the cube vertices, listed clockwise
+	// with the bottom plane first, then top plane
+	Vector3d vfront = 0.25*(cv[0]+cv[1]+cv[5]+cv[4]); // front (+z)
+	Vector3d vback = 0.25*(cv[3]+cv[2]+cv[6]+cv[7]); // back (-z)
+	Vector3d vleft = 0.25*(cv[0]+cv[3]+cv[7]+cv[4]); // left (-x)
+	Vector3d vright = 0.25*(cv[1]+cv[2]+cv[6]+cv[5]); // right (+x)
+	Vector3d vtop = 0.25*(cv[4]+cv[5]+cv[6]+cv[7]); // top (+y)
+	Vector3d vbot = 0.25*(cv[0]+cv[1]+cv[2]+cv[3]); // bot (-y)
+	Vector3d vcent = 0.125*(cv[0]+cv[1]+cv[2]+cv[3]+cv[4]+cv[5]+cv[6]+cv[7]); // center
+	Vector3d v01 = 0.5*(cv[0]+cv[1]);
+	Vector3d v03 = 0.5*(cv[0]+cv[3]);
+	Vector3d v04 = 0.5*(cv[0]+cv[4]);
+	Vector3d v12 = 0.5*(cv[1]+cv[2]);
+	Vector3d v15 = 0.5*(cv[1]+cv[5]);
+	Vector3d v23 = 0.5*(cv[2]+cv[3]);
+	Vector3d v26 = 0.5*(cv[2]+cv[6]);
+	Vector3d v37 = 0.5*(cv[3]+cv[7]);
+	Vector3d v45 = 0.5*(cv[4]+cv[5]);
+	Vector3d v56 = 0.5*(cv[5]+cv[6]);
+	Vector3d v67 = 0.5*(cv[6]+cv[7]);
+	Vector3d v47 = 0.5*(cv[4]+cv[7]);
+	subdivide_cube(data, { cv[0], v01, vbot, v03, v04, vfront, vcent, vleft }, new_pts_in_box, level-1);
+	subdivide_cube(data, { v01, cv[1], v12, vbot, vfront, v15, vright, vcent }, new_pts_in_box, level-1);
+	subdivide_cube(data, { vbot, v12, cv[2], v23, vcent, vright, v26, vback }, new_pts_in_box, level-1);
+	subdivide_cube(data, { v03, vbot, v23, cv[3], vleft, vcent, vback, v37 }, new_pts_in_box, level-1);
+	subdivide_cube(data, { v04, vfront, vcent, vleft, cv[4], v45, vtop, v47 }, new_pts_in_box, level-1);
+	subdivide_cube(data, { vfront, v15, vright, vcent, v45, cv[5], v56, vtop }, new_pts_in_box, level-1);
+	subdivide_cube(data, { vcent, vright, v26, vback, vtop, v56, cv[6], v67 }, new_pts_in_box, level-1);
+	subdivide_cube(data, { vleft, vcent, vback, v37, v47, vtop, v67, cv[7] }, new_pts_in_box, level-1);
+}
+
+
+
 bool EmbeddedMesh::generate(
 	const Eigen::MatrixXd &V, // embedded verts
 	const Eigen::MatrixXi &F, // embedded faces
@@ -70,99 +218,38 @@ bool EmbeddedMesh::generate(
 	Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
 	bool trim_lattice)
 {
-	// How big the grid cells are as a fraction
-	// of the total mesh.
-	static const double GRID_FRAC = 0.15;
-
-	if (emb_mesh==NULL)
-		return false;
-	if (x_tets==NULL)
-		return false;
-
 	emb_mesh->faces = F;
 	emb_mesh->x_rest = V;
 
 	AlignedBox<double,3> aabb;
-	int nv = V.rows();
-	for(int i=0; i<nv; ++i)
-		aabb.extend(V.row(i).transpose());
-	
-	aabb.extend(aabb.min()-Vector3d::Ones()*1e-6);
-	aabb.extend(aabb.max()+Vector3d::Ones()*1e-6);
-	Vector3d mesh_boxmin = aabb.min();
-	Vector3d sizes = aabb.sizes();
-	double grid_dx = sizes.maxCoeff() * GRID_FRAC;
-
-	// Generate vertices and tets
-	std::vector<Vector3d> verts;
-	std::vector<Vector4i> tets;
+	int nev = V.rows();
+	std::vector<int> pts_in_box;
+	for (int i=0; i<nev; ++i)
 	{
-		std::unordered_map<std::string, int> vertex_map; // [i,j,k]->index
+		aabb.extend(V.row(i).transpose());
+		pts_in_box.emplace_back(i);
+	}
 
-		auto grid_hash = [&](const Vector3d &x)
-		{
-			Vector3i ll = Vector3i( // nearest gridcell
-				std::round((x[0]-mesh_boxmin[0])/grid_dx),
-				std::round((x[1]-mesh_boxmin[1])/grid_dx),
-				std::round((x[2]-mesh_boxmin[2])/grid_dx));
-			return std::to_string(ll[0])+' '+std::to_string(ll[1])+' '+std::to_string(ll[2]);
-		};
+	// Create initial box
+	aabb.extend(aabb.min()-Vector3d::Ones()*1e-4);
+	aabb.extend(aabb.max()+Vector3d::Ones()*1e-4);
+	Vector3d min = aabb.min();
+	Vector3d max = aabb.max();
+	std::vector<Vector3d> b0 = {
+		Vector3d(min[0], min[1], max[2]),
+		Vector3d(max[0], min[1], max[2]),
+		Vector3d(max[0], min[1], min[2]),
+		min,
+		Vector3d(min[0], max[1], max[2]),
+		max,
+		Vector3d(max[0], max[1], min[2]),
+		Vector3d(min[0], max[1], min[2])
+	};
 
-		auto add_box = [&](int i_, int j_, int k_)
-		{
-			Vector3d min = mesh_boxmin + Vector3d(i_*grid_dx, j_*grid_dx, k_*grid_dx);
-			Vector3d max = mesh_boxmin + Vector3d((i_+1)*grid_dx, (j_+1)*grid_dx, (k_+1)*grid_dx);
-			std::vector<Vector3d> v = {
-				// Top plane, clockwise looking down
-				max,
-				Vector3d(min[0], max[1], max[2]),
-				Vector3d(min[0], max[1], min[2]),
-				Vector3d(max[0], max[1], min[2]),
-				// Bottom plan, clockwise looking down
-				Vector3d(max[0], min[1], max[2]),
-				Vector3d(min[0], min[1], max[2]),
-				min,
-				Vector3d(max[0], min[1], min[2])
-			};
-			// Add vertices and get indices of the box
-			std::vector<int> b;
-			for(int i=0; i<8; ++i)
-			{
-				std::string hash = grid_hash(v[i]);
-				if( vertex_map.count(hash)==0 )
-				{
-					vertex_map[hash] = verts.size();
-					verts.emplace_back(v[i]);
-				}
-				b.emplace_back(vertex_map[hash]);
-			}
-			// From the box, create five new tets
-			std::vector<Vector4i> new_tets = {
-				Vector4i( b[0], b[5], b[7], b[4] ),
-				Vector4i( b[5], b[7], b[2], b[0] ),
-				Vector4i( b[5], b[0], b[2], b[1] ),
-				Vector4i( b[7], b[2], b[0], b[3] ),
-				Vector4i( b[5], b[2], b[7], b[6] )
-			};
-			for(int i=0; i<5; ++i)
-				tets.emplace_back(new_tets[i]);
-		};
-
-		int ni = std::ceil(sizes[0]/grid_dx);
-		int nj = std::ceil(sizes[1]/grid_dx);
-		int nk = std::ceil(sizes[2]/grid_dx);
-		for(int i=0; i<ni; ++i)
-		{
-			for(int j=0; j<nj; ++j)
-			{
-				for(int k=0; k<nk; ++k)
-				{
-					add_box(i,j,k);
-				}
-			}
-		}
-
-	} // end create boxes and vertices
+	LatticeData data;
+	data.V = &V;
+	subdivide_cube(&data,b0,pts_in_box,3);
+	merge_close_vertices(&data);
 
 	// We only want to keep tets that are either
 	// a) intersecting the surface mesh
@@ -179,7 +266,7 @@ bool EmbeddedMesh::generate(
 				face_aabb[i].extend(V.row(f[j]).transpose());
 		}
 
-		int nt0 = tets.size();
+		int nt0 = data.tets.size();
 		std::vector<int> keep_tet(nt0,1);
 
 		AABBTree<double,3> mesh_tree;
@@ -188,8 +275,8 @@ bool EmbeddedMesh::generate(
 			.tree = &mesh_tree,
 			.pts = &V,
 			.faces = &F,
-			.tet_x = &verts,
-			.tets = &tets,
+			.tet_x = &data.verts,
+			.tets = &data.tets,
 			.keep_tet = &keep_tet
 		};
 		if (trim_lattice)
@@ -202,7 +289,8 @@ bool EmbeddedMesh::generate(
 		// Loop over tets and remove as needed.
 		// Mark referenced vertices to compute a mapping.
 		int tet_idx = 0;
-		for (std::vector<Vector4i>::iterator it = tets.begin(); it != tets.end(); ++tet_idx)
+		for (std::vector<Vector4i>::iterator it = data.tets.begin();
+			it != data.tets.end(); ++tet_idx)
 		{
 			bool keep = keep_tet[tet_idx];
 			if (keep)
@@ -214,7 +302,7 @@ bool EmbeddedMesh::generate(
 				refd_verts.emplace(t[3]);
 				++it;
 			}
-			else { it = tets.erase(it); }
+			else { it = data.tets.erase(it); }
 		}
 
 	} // end remove unnecessary tets
@@ -224,7 +312,7 @@ bool EmbeddedMesh::generate(
 		// Computing a mapping of vertices from old to new
 		// Delete any unreferenced vertices
 		std::unordered_map<int,int> vtx_old_to_new;
-		int ntv0 = verts.size(); // original num verts
+		int ntv0 = data.verts.size(); // original num verts
 		int ntv1 = refd_verts.size(); // reduced num verts
 		BLI_assert(ntv1 <= ntv0);
 		x_tets->resize(ntv1,3);
@@ -234,7 +322,7 @@ bool EmbeddedMesh::generate(
 			if (refd_verts.count(i)>0)
 			{
 				for(int j=0; j<3; ++j){
-					x_tets->operator()(vtx_count,j) = verts[i][j];
+					x_tets->operator()(vtx_count,j) = data.verts[i][j];
 				}
 				vtx_old_to_new[i] = vtx_count;
 				vtx_count++;
@@ -242,11 +330,11 @@ bool EmbeddedMesh::generate(
 		}
 
 		// Copy tets to matrix data and update vertices
-		int nt = tets.size();
+		int nt = data.tets.size();
 		emb_mesh->tets.resize(nt,4);
 		for(int i=0; i<nt; ++i){
 			for(int j=0; j<4; ++j){
-				int old_idx = tets[i][j];
+				int old_idx = data.tets[i][j];
 				BLI_assert(vtx_old_to_new.count(old_idx)>0);
 				emb_mesh->tets(i,j) = vtx_old_to_new[old_idx];
 			}
@@ -258,6 +346,9 @@ bool EmbeddedMesh::generate(
 		emb_mesh, &V, x_tets);
 
 } // end gen lattice
+
+
+
 
 void EmbeddedMesh::compute_masses(
 	EmbeddedMeshData *emb_mesh, // where embedding is stored
@@ -411,6 +502,11 @@ bool EmbeddedMesh::compute_embedding(
 			return false;
 		}
 	}
+
+
+// Export the mesh for funsies
+std::ofstream of("v_lattice.txt"); of << *x_tets; of.close();
+std::ofstream of2("t_lattice.txt"); of2 << emb_mesh->tets; of2.close();
 
 	return true;
 

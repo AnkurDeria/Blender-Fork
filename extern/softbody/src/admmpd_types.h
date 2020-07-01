@@ -29,9 +29,9 @@ struct Options {
         max_admm_iters(50),
         max_cg_iters(10),
         max_gs_iters(30),
-        mult_k(1),
+        mult_k(3),
         min_res(1e-6),
-        youngs(1000000),
+        youngs(10000000),
         poisson(0.399),
         grav(0,0,-9.8)
         {}

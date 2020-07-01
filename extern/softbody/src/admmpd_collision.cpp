@@ -78,18 +78,6 @@ void Collision::detect_discrete_vf(
 	double floor_z,
 	std::vector<VFCollisionPair> *pairs)
 {
-	// Special case, check if we are below the floor
-	if (pt[2] < floor_z)
-	{
-		pairs->emplace_back();
-		VFCollisionPair &pair = pairs->back();
-		pair.p_idx = pt_idx;
-		pair.p_is_obs = pt_is_obs;
-		pair.q_idx = -1;
-		pair.q_is_obs = 1;
-		pair.pt_on_q = Vector3d(pt[0],pt[1],floor_z);
-	}
-
 	// Any faces to detect against?
 	if (mesh_tris->rows()==0)
 		return;
@@ -191,6 +179,19 @@ static void parallel_detect(
 			bary[2] * td->x1->row(tet[2]) +
 			bary[3] * td->x1->row(tet[3]);
 
+
+		// Special case, check if we are below the floor
+		if (pt[2] < td->floor_z)
+		{
+			tl_pairs.emplace_back();
+			VFCollisionPair &pair = tl_pairs.back();
+			pair.p_idx = i;
+			pair.p_is_obs = false;
+			pair.q_idx = -1;
+			pair.q_is_obs = 1;
+			pair.pt_on_q = Vector3d(pt[0],pt[1],td->floor_z);
+		}
+
 		Collision::detect_discrete_vf(
 			pt, i, false,
 			&td->obsdata->tree,
@@ -199,6 +200,15 @@ static void parallel_detect(
 			true,
 			td->floor_z,
 			&tl_pairs );
+
+	//	Collision::detect_discrete_vf(
+	//		pt, i, false,
+	//		&td->obsdata->tree,
+	//		&td->obsdata->V1,
+	//		&td->obsdata->F,
+	//		true,
+	//		td->floor_z,
+	//		&tl_pairs );
 
 	} // end detect with embedded meshes
 

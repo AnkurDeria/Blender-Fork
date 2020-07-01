@@ -12,11 +12,9 @@ namespace admmpd {
 struct VFCollisionPair {
     int p_idx; // point
     int p_is_obs; // 0 or 1
-    int q_idx; // face
+    int q_idx; // face, or -1 if floor
     int q_is_obs; // 0 or 1
     Eigen::Vector3d pt_on_q; // point of collision on q
-//    int floor; // 0 or 1, special case
-//    Eigen::Vector3d barys;
     Eigen::Vector3d q_n; // face normal
     VFCollisionPair();
 };

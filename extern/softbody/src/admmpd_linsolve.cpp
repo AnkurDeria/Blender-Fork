@@ -124,11 +124,11 @@ void ConjugateGradients::solve_Ax_b(
 	VectorXd *x_,
 	VectorXd *b_)
 {
-	typedef struct LinSolveThreadData {
+	struct LinSolveThreadData {
 		SolverData *data;
 		VectorXd *ls_x;
 		VectorXd *ls_b;
-	} LinSolveThreadData;
+	};
 
 	auto parallel_lin_solve = [](
 		void *__restrict userdata,
@@ -326,7 +326,7 @@ std::cerr << "p: " << p_idx << ", q: " << q_idx << ", tet (" << k << "): " << t 
 
 } // end init solve
 
-typedef struct GraphColorThreadData {
+struct GraphColorThreadData {
 	const RowSparseMatrix<double> *A;
 	int stride;
 	std::vector<std::vector<int> > *adjacency;
@@ -334,7 +334,7 @@ typedef struct GraphColorThreadData {
 	int init_palette_size;
 	std::vector<int> *conflict;
 	std::vector<int> *node_colors;
-} GraphColorThreadData;
+};
 
 // Rehash of graph coloring from
 // https://github.com/mattoverby/mclscene/blob/master/include/MCL/GraphColor.hpp

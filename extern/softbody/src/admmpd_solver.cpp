@@ -19,10 +19,10 @@
 namespace admmpd {
 using namespace Eigen;
 
-typedef struct ThreadData {
+struct ThreadData {
 	const Options *options;
 	SolverData *data;
-} ThreadData;
+};
 
 bool Solver::init(
     const Eigen::MatrixXd &V,

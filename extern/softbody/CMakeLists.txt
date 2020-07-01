@@ -19,35 +19,35 @@
 # ***** END GPL LICENSE BLOCK *****
 
 set(INC
-  src
+	src
 )
 
 set(INC_SYS
-  ${EIGEN3_INCLUDE_DIRS}
-  ../../source/blender/blenlib
-  ../../source/blender/makesdna # BLI_math_geom requires DNA
+	${EIGEN3_INCLUDE_DIRS}
+	../../source/blender/blenlib
+	../../source/blender/makesdna # BLI_math_geom requires DNA
 )
 
 set(SRC
-  src/admmpd_bvh.h
-  src/admmpd_bvh.cpp
-  src/admmpd_bvh_traverse.h
-  src/admmpd_bvh_traverse.cpp
-  src/admmpd_collision.h
-  src/admmpd_collision.cpp
-  src/admmpd_embeddedmesh.h
-  src/admmpd_embeddedmesh.cpp
-  src/admmpd_energy.h
-  src/admmpd_energy.cpp
-  src/admmpd_linsolve.h
-  src/admmpd_linsolve.cpp
-  src/admmpd_math.h
-  src/admmpd_math.cpp
-  src/admmpd_solver.h
-  src/admmpd_solver.cpp
-  src/admmpd_tetmesh.h
-  src/admmpd_tetmesh.cpp
-  src/admmpd_types.h
+	src/admmpd_bvh.h
+	src/admmpd_bvh.cpp
+	src/admmpd_bvh_traverse.h
+	src/admmpd_bvh_traverse.cpp
+	src/admmpd_collision.h
+	src/admmpd_collision.cpp
+	src/admmpd_embeddedmesh.h
+	src/admmpd_embeddedmesh.cpp
+	src/admmpd_energy.h
+	src/admmpd_energy.cpp
+	src/admmpd_linsolve.h
+	src/admmpd_linsolve.cpp
+	src/admmpd_math.h
+	src/admmpd_math.cpp
+	src/admmpd_solver.h
+	src/admmpd_solver.cpp
+	src/admmpd_tetmesh.h
+	src/admmpd_tetmesh.cpp
+	src/admmpd_types.h
 )
 
 set(LIB
