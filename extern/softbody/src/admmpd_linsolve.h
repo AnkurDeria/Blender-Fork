@@ -5,6 +5,7 @@
 #define ADMMPD_LINSOLVE_H_
 
 #include "admmpd_types.h"
+#include "admmpd_collision.h"
 
 namespace admmpd {
 
@@ -13,7 +14,8 @@ class ConjugateGradients {
 public:
 	void solve(
 		const Options *options,
-		SolverData *data);
+		SolverData *data,
+		Collision *collision);
 
 protected:
 	// Apply preconditioner
@@ -28,17 +30,22 @@ class GaussSeidel {
 public:
 	void solve(
 		const Options *options,
-		SolverData *data);
+		SolverData *data,
+		Collision *collision);
 
 protected:
 	void init_solve(
 		const Options *options,
-		SolverData *data);
+		SolverData *data,
+		Collision *collision);
 
 	void compute_colors(
-		const RowSparseMatrix<double> *A,
-		int stride,
+		const std::vector<std::set<int> > &vertex_energies_graph,
+		const std::vector<std::set<int> > &vertex_constraints_graph,
 		std::vector<std::vector<int> > &colors);
+
+	// For debugging:
+	void verify_colors(SolverData *data);
 
 };
 

@@ -40,8 +40,10 @@ static inline void make_n3(
 
 void ConjugateGradients::solve(
 		const Options *options,
-		SolverData *data)
+		SolverData *data,
+		Collision *collision)
 {
+	(void)(collision); // unused
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
 	int nx = data->x.rows();
@@ -154,83 +156,117 @@ void ConjugateGradients::solve_Ax_b(
 
 void GaussSeidel::solve(
 		const Options *options,
-		SolverData *data)
+		SolverData *data,
+		Collision *collision)
 {
-	init_solve(options,data);
-	std::vector<std::vector<int> > *colors;
-	//if (data->gsdata.KtK.nonZeros()==0)
-		colors = &data->gsdata.A_colors;
-	//else...
+	init_solve(options,data,collision);
+	MatrixXd dx(data->x.rows(),3);
+	dx.setZero();
 
-	double omega = 1.0; // over relaxation
-	int n_colors = colors->size();
+	struct GaussSeidelThreadData {
+		int iter;
+		int color;
+		std::vector<std::vector<int> > *colors;
+		const Options *options;
+		SolverData *data;
+		Collision *collision;
+		MatrixXd *dx;
+	};
+
+	GaussSeidelThreadData thread_data = {
+		.iter = 0,
+		.color = 0,
+		.colors = &data->gsdata.A3_plus_CtC_colors,
+		.options = options,
+		.data = data,
+		.collision = collision,
+		.dx = &dx };
+
+	// Inner iteration of Gauss-Seidel
+	auto parallel_gs_sweep = [](void *__restrict userdata, const int i_,
+		const TaskParallelTLS *__restrict UNUSED(tls)) -> void
+	{
+		GaussSeidelThreadData *td = (GaussSeidelThreadData*)userdata;
+		int idx = td->colors->at(td->color)[i_];
+		double omega = td->options->gs_omega;
+		typedef RowSparseMatrix<double>::InnerIterator InnerIter;
+
+		// Loop over expanded A matrix, i.e. segment update
+		Vector3d LUx(0,0,0);
+		Vector3d inv_aii(0,0,0);
+		for (int j=0; j<3; ++j)
+		{
+			InnerIter rit(td->data->gsdata.A3_plus_CtC, idx*3+j);
+			for (; rit; ++rit)
+			{
+				int r = rit.row();
+				int c = rit.col();
+				double v = rit.value();
+				if (v==0.0)
+					continue;
+
+				if (r==c) // Diagonal
+				{
+					inv_aii[j] = 1.0/v;
+					continue;
+				}
+
+				double xj = td->data->x(c/3,j);
+				LUx[j] += v*xj;
+			}
+
+		} // end loop segment
+
+		// Update x
+		Vector3d bi = td->data->b.row(idx).transpose()
+			+ td->data->gsdata.Ctd.segment<3>(idx*3);
+		Vector3d xi = td->data->x.row(idx);
+		Vector3d xi_new = (bi-LUx);
+
+		for (int j=0; j<3; ++j)
+			xi_new[j] *= inv_aii[j];
+		td->data->x.row(idx) = xi*(1.0-omega) + xi_new*omega;
+
+		// Check fast-query constraints
+		double floor_z = td->collision->get_floor();
+//		if (td->data->x(idx,2) < floor_z)
+//			td->data->x(idx,2) = floor_z;
+
+		// Update deltas
+		td->dx->row(idx) = td->data->x.row(idx)-xi.transpose();
+
+	};
+
+	TaskParallelSettings thrd_settings;
+	BLI_parallel_range_settings_defaults(&thrd_settings);
 
 	// Outer iteration loop
+	int n_colors = data->gsdata.A3_plus_CtC_colors.size();
 	int iter = 0;
 	for (; iter < options->max_gs_iters; ++iter)
 	{
 		for (int color=0; color<n_colors; ++color)
 		{
-			const std::vector<int> &inds = colors->at(color);
-			int n_inds = inds.size();
-			for (int i=0; i<n_inds; ++i)
-			{
-				int idx = inds[i];
-
-				// Special case pins TODO
-				// We can skip the usual Gauss-Seidel update
-	//			if (is_pinned[idx]) ...
-
-				RowSparseMatrix<double>::InnerIterator rit(data->A,idx);
-				Vector3d LUx(0,0,0);
-				Vector3d inv_aii(0,0,0);
-				for (; rit; ++rit)
-				{
-					int r = rit.row();
-					int c = rit.col();
-					double v = rit.value();
-					if (v==0.0)
-						continue;
-
-					if (r==c) // Diagonal
-					{
-						inv_aii.array() = 1.0/v;
-						continue;
-					}
-					Vector3d xj = data->x.row(c);
-					LUx += v*xj;
-				}
-
-				// Update x
-				Vector3d bi = data->b.row(idx);
-				Vector3d xi = data->x.row(idx);
-				Vector3d xi_new = (bi-LUx);
-
-				for (int j=0; j<3; ++j)
-					xi_new[j] *= inv_aii[j];
-				data->x.row(idx) = xi*(1.0-omega) + xi_new*omega;
-
-				// TODO
-				// We can also apply constraints here, like
-				// checking against Collision::floor_z
-				if (data->x(idx,2)<0)
-					data->x(idx,2)=0;
-
-			} // end loop inds
+			thread_data.color = color;
+			int n_inds = data->gsdata.A3_plus_CtC_colors[color].size();
+			BLI_task_parallel_range(0, n_inds, &thread_data, parallel_gs_sweep, &thrd_settings);
 		} // end loop colors
 
-		// TODO check exit condition
-
+		double dxn = dx.rowwise().lpNorm<Infinity>().maxCoeff();
+		if (dxn < options->min_res)
+			break;
 	} // end loop GS iters
 
 } // end solve with constraints
 
 void GaussSeidel::init_solve(
 		const Options *options,
-		SolverData *data)
+		SolverData *data,
+		Collision *collision)
 {
 	BLI_assert(options != nullptr);
 	BLI_assert(data != nullptr);
+	BLI_assert(collision != nullptr);
 	int nx = data->x.rows();
 	BLI_assert(nx>0);
 	BLI_assert(data->x.cols()==3);
@@ -240,53 +276,13 @@ void GaussSeidel::init_solve(
 
 	// Do we need to color the default colorings?
 	if (data->gsdata.A_colors.size() == 0)
-		compute_colors(&data->A, 1, data->gsdata.A_colors);
-
-	// Verify color groups are correct
 	{
-		std::cout << "TESTING " << data->tets.rows() << " tets" << std::endl;
-		std::cout << "num colors: " << data->gsdata.A_colors.size() << std::endl;
-		int nt = data->tets.rows();
-		int nc = data->gsdata.A_colors.size();
-		for (int i=0; i<nc; ++i)
-		{
-			// Each vertex in the color should not
-			// be a part of a tet with a vertex in the same color
-			const std::vector<int> &grp = data->gsdata.A_colors[i];
-			int n_grp = grp.size();
-			for (int j=0; j<n_grp; ++j)
-			{
-				int p_idx = grp[j];
-				auto in_tet = [](int idx, const RowVector4i &t)
-				{
-					return (t[0]==idx||t[1]==idx||t[2]==idx||t[3]==idx);
-				};
-
-				for (int k=0; k<nt; ++k)
-				{
-					RowVector4i t = data->tets.row(k);
-					if (!in_tet(p_idx,t))
-						continue;
-
-					for (int l=0; l<n_grp; ++l)
-					{
-						int q_idx = grp[l];
-						if (p_idx==q_idx)
-							continue;
-
-						if (in_tet(q_idx,t))
-						{
-std::cerr << "p: " << p_idx << ", q: " << q_idx << ", tet (" << k << "): " << t << std::endl;
-//							throw std::runtime_error("GaussSeidel Error: Color contains two verts form same tet!");
-						}
-					}
-				}
-			}
-		}
+		std::vector<std::set<int> > c_graph;
+		compute_colors(data->energies_graph, c_graph, data->gsdata.A_colors);
 	}
 
 	// Create large A if we haven't already.
-	if (data->gsdata.A3.rows() != nx*3)
+	if (data->gsdata.A3.nonZeros()==0)
 		make_n3(data->A, data->gsdata.A3);
 
 	// TODO
@@ -307,11 +303,17 @@ std::cerr << "p: " << p_idx << ", q: " << q_idx << ", tet (" << k << "): " << t 
 			data->gsdata.b3_plus_Ctd[i*3+1] = data->b(i,1)+data->gsdata.Ctd[i*3+1];
 			data->gsdata.b3_plus_Ctd[i*3+2] = data->b(i,2)+data->gsdata.Ctd[i*3+2];
 		}
-		compute_colors(&data->gsdata.A3_plus_CtC, 3, data->gsdata.A3_plus_CtC_colors);
+		std::vector<std::set<int> > c_graph;
+		collision->graph(c_graph);
+		compute_colors(data->energies_graph, c_graph, data->gsdata.A3_plus_CtC_colors);
 	}
 	else
 	{
+		if (data->gsdata.CtC.rows() != nx*3)
+			data->gsdata.CtC.resize(nx*3, nx*3);
 		data->gsdata.CtC.setZero();
+		if (data->gsdata.Ctd.rows() != nx*3)
+			data->gsdata.Ctd.resize(nx*3);
 		data->gsdata.Ctd.setZero();
 		data->gsdata.A3_plus_CtC = data->gsdata.A3;
 		data->gsdata.b3_plus_Ctd.resize(nx*3);
@@ -326,145 +328,161 @@ std::cerr << "p: " << p_idx << ", q: " << q_idx << ", tet (" << k << "): " << t 
 
 } // end init solve
 
-struct GraphColorThreadData {
-	const RowSparseMatrix<double> *A;
-	int stride;
-	std::vector<std::vector<int> > *adjacency;
-	std::vector<std::set<int> > *palette;
-	int init_palette_size;
-	std::vector<int> *conflict;
-	std::vector<int> *node_colors;
-};
-
 // Rehash of graph coloring from
 // https://github.com/mattoverby/mclscene/blob/master/include/MCL/GraphColor.hpp
 void GaussSeidel::compute_colors(
-		const RowSparseMatrix<double> *A,
-		int stride,
+		const std::vector<std::set<int> > &vertex_energies_graph,
+		const std::vector<std::set<int> > &vertex_constraints_graph,
 		std::vector<std::vector<int> > &colors)
 {
-	BLI_assert(A != nullptr);
-	BLI_assert(stride>0);
+	int n_nodes = vertex_energies_graph.size();
+	BLI_assert(n_nodes>0);
+	BLI_assert(
+		vertex_constraints_graph.size()==0 ||
+		(int)vertex_constraints_graph.size()==n_nodes);
 
 	// Graph color settings
 	int init_palette_size = 6;
 
 	// Graph coloring tmp data
-	int n_nodes = A->rows()/stride;
-	std::vector<std::vector<int> > adjacency(n_nodes, std::vector<int>());
 	std::vector<std::set<int> > palette(n_nodes, std::set<int>());
 	std::vector<int> conflict(n_nodes,1);
 	std::vector<int> node_colors(n_nodes,-1);
+	std::vector<int> node_queue(n_nodes);
+	std::iota(node_queue.begin(), node_queue.end(), 0);
+    std::random_device rd;
+    std::mt19937 mt(rd());
+	std::uniform_int_distribution<int> dist(0, n_nodes);
+
+	struct GraphColorThreadData {
+		int iter;
+		int init_palette_size;
+		const std::vector<std::set<int> > *e_graph; // energies
+		const std::vector<std::set<int> > *c_graph; // constraints
+		std::vector<std::set<int> > *palette;
+		std::vector<int> *conflict;
+		std::vector<int> *node_colors;
+		std::vector<int> *node_queue;
+    	std::mt19937 *mt;
+		std::uniform_int_distribution<int> *dist;
+	};
+	GraphColorThreadData thread_data = {
+		.iter = 0,
+		.init_palette_size = init_palette_size,
+		.e_graph = &vertex_energies_graph,
+		.c_graph = &vertex_constraints_graph,
+		.palette = &palette,
+		.conflict = &conflict,
+		.node_colors = &node_colors,
+		.node_queue = &node_queue,
+		.mt = &mt,
+		.dist = &dist };
+	TaskParallelSettings thrd_settings;
+	BLI_parallel_range_settings_defaults(&thrd_settings);
 
 	//
 	// Step 1)
 	// Graph color initialization
 	//
-	auto parallel_init_graph = [](
-		void *__restrict userdata,
-		const int i,
+	auto init_graph = [](void *__restrict userdata, const int i,
 		const TaskParallelTLS *__restrict UNUSED(tls)) -> void
 	{
 		GraphColorThreadData *td = (GraphColorThreadData*)userdata;
-		typedef RowSparseMatrix<double>::InnerIterator InnerIter;
-		// Use lower trianglular portion of the matrix.
-		// That is, store adjacency inds that are lower than
-		// the current index.
-		for (InnerIter it(*(td->A),i*td->stride); it; ++it)
-		{
-			if (std::abs(it.value())==0.0)
-				continue;
-			if (it.col()/td->stride >= it.row()/td->stride)
-				break;
-			int idx = it.col()/td->stride;
-			td->adjacency->at(i).emplace_back(idx);
-		}
 		for( int j=0; j<td->init_palette_size; ++j ) // init colors
 			td->palette->at(i).insert(j); 
 	};
-	GraphColorThreadData thread_data = {
-		.A = A, .stride = stride,
-		.adjacency = &adjacency,
-		.palette = &palette,
-		.init_palette_size = init_palette_size,
-		.conflict = &conflict,
-		.node_colors = &node_colors };
-	TaskParallelSettings settings;
-	BLI_parallel_range_settings_defaults(&settings);
-	BLI_task_parallel_range(0, n_nodes, &thread_data, parallel_init_graph, &settings);
-
-    std::random_device rd;
-    std::mt19937 mt(rd());
-	std::uniform_int_distribution<int> dist(0, n_nodes);
+	BLI_task_parallel_range(0, n_nodes, &thread_data, init_graph, &thrd_settings);
 
 	//
 	// Step 2)
 	// Stochastic Graph coloring
 	//
-	std::vector<int> node_queue(n_nodes);
-	std::iota(node_queue.begin(), node_queue.end(), 0);
 	int max_iters = n_nodes;
-	for (int rand_iter=0; n_nodes>0 && rand_iter < max_iters; ++rand_iter)
+	for (int rand_iter=0; n_nodes>0 && rand_iter<max_iters; ++rand_iter)
 	{
-		// Generate a random color and find conflicts
+		thread_data.iter = rand_iter;
+
+		// Generate a random color
+		auto generate_color = [](void *__restrict userdata, const int i,
+			const TaskParallelTLS *__restrict UNUSED(tls)) -> void
+		{
+			GraphColorThreadData *td = (GraphColorThreadData*)userdata;
+			int idx = td->node_queue->at(i);
+			if (td->palette->at(idx).size()<2) // Feed the hungry
+					td->palette->at(idx).insert(td->init_palette_size+td->iter);
+			int c_idx = td->dist->operator()(*td->mt) % td->palette->at(idx).size();
+			td->node_colors->at(idx) = *std::next(td->palette->at(idx).begin(), c_idx);
+		};
+		BLI_task_parallel_range(0, n_nodes, &thread_data, generate_color, &thrd_settings);
+
+		// Detect conflicts
+		auto detect_conflicts = [](void *__restrict userdata, const int i,
+			const TaskParallelTLS *__restrict UNUSED(tls)) -> void
+		{
+			GraphColorThreadData *td = (GraphColorThreadData*)userdata;
+			int idx = td->node_queue->at(i);
+			int curr_c = td->node_colors->at(idx);
+			bool curr_conflict = false;
+			for (std::set<int>::iterator e_it = td->e_graph->at(idx).begin();
+				e_it != td->e_graph->at(idx).end() && !curr_conflict; ++e_it)
+			{
+				int adj_idx = *e_it;
+				if (adj_idx<=idx)
+					continue; // Hungarian heuristic
+				int adj_c = td->node_colors->at(adj_idx);
+				if (curr_c==adj_c)
+					curr_conflict = true;
+			}
+			if ((int)td->c_graph->size() > idx)
+			{
+				for (std::set<int>::iterator c_it = td->c_graph->at(idx).begin();
+					c_it != td->c_graph->at(idx).end() && !curr_conflict; ++c_it)
+				{
+					int adj_idx = *c_it;
+					if (adj_idx<=idx)
+						continue; // Hungarian heuristic
+					int adj_c = td->node_colors->at(adj_idx);
+					if (curr_c==adj_c)
+						curr_conflict = true;
+				}
+			}
+			td->conflict->at(idx) = curr_conflict;
+		};
+		BLI_task_parallel_range(0, n_nodes, &thread_data, detect_conflicts, &thrd_settings);
+
+		// Resolve conflicts and update queue
+		std::vector<int> new_queue;
 		for (int i=0; i<n_nodes; ++i)
 		{
 			int idx = node_queue[i];
-			if( palette[idx].size() < 2 ){ // Feed if hungry
-				palette[idx].insert(init_palette_size+rand_iter);
-			}
-
-			int c_idx = dist(mt) % (int)palette[idx].size();
-			int curr_color = *std::next(palette[idx].begin(), c_idx);
-			node_colors[idx] = curr_color;
-			conflict[idx] = 0;
-
-			// Hungarian heuristic: node with largest index keeps color
-			// if both have the same color.
-			// Check lower-indexed adjacent nodes, and mark them
-			// in conflict if they generated the same color.
-			// We can do this if we process colors in an increasing order.
-			int n_adj = adjacency[idx].size();
-			for (int j=0; j<n_adj; ++j)
-			{
-				// Adjacency index buffer only stores lower-indexed nodes.
-				int adj_idx = adjacency[idx][j];
-				int adj_color = node_colors[adj_idx];
-				if (adj_idx >= idx)
-					throw std::runtime_error("GaussSeidel Error: Oops, not lower diag");
-				if (adj_color==curr_color)
-					conflict[adj_idx] = 1;					
-			}
-		}
-
-		// Resolve conflicts and trim queue
-		std::set<int> new_queue;
-		for (int i=0; i<n_nodes; ++i)
-		{
-			int idx = node_queue[i];
-			int curr_color = node_colors[idx];
-			int n_adj = adjacency[idx].size();
-
-			// If this node not in conflict, remove its
-			// color from adjacent palettes. If adjacent
-			// nodes not in conflict, remove their color
-			// from this palette.
-			for (int j=0; j<n_adj; ++j)
-			{
-				int adj_idx = adjacency[idx][j];
-				int adj_color = node_colors[adj_idx];
-				if (!conflict[idx])
-					palette[adj_idx].erase(curr_color);
-				if (!conflict[adj_idx])
-					palette[idx].erase(adj_color);
-			}
-
 			if (conflict[idx])
-				new_queue.emplace(idx);
+				new_queue.emplace_back(idx);
+			else
+			{
+				int curr_color = node_colors[idx];
+				// Remove color from neighbor palletes
+				for (std::set<int>::iterator e_it = vertex_energies_graph[idx].begin();
+					e_it != vertex_energies_graph[idx].end(); ++e_it)
+				{
+					int adj_idx = *e_it;
+					if (conflict[adj_idx]) // still in the set?
+						palette[adj_idx].erase(curr_color);
+				}
+				if ((int)vertex_constraints_graph.size() > idx)
+				{
+					for (std::set<int>::iterator c_it = vertex_constraints_graph[idx].begin();
+						c_it != vertex_constraints_graph[idx].end(); ++c_it)
+					{
+						int adj_idx = *c_it;
+						if (conflict[adj_idx]) // still in the set?
+							palette[adj_idx].erase(curr_color);
+					}
+				}
+			}
 		}
 
-		n_nodes = new_queue.size();
-		node_queue.assign(new_queue.begin(), new_queue.end());
+		node_queue = new_queue;
+		n_nodes = node_queue.size();
 
 	} // end color loop
 
@@ -473,6 +491,7 @@ void GaussSeidel::compute_colors(
 	// Map per-vertex colors
 	//
 	colors.clear();
+	colors.resize(14,std::vector<int>());
 	n_nodes = node_colors.size();
 	for( int i=0; i<n_nodes; ++i ){
 		int color = node_colors[i];
@@ -488,5 +507,52 @@ void GaussSeidel::compute_colors(
 		it->size() == 0 ? it = colors.erase(it) : it++;
 
 } // end compute colors
+
+void GaussSeidel::verify_colors(SolverData *data)
+{
+	// TODO check constraints too
+	// Verify color groups are correct
+	std::cout << "TESTING " << data->tets.rows() << " tets" << std::endl;
+	std::cout << "num colors: " << data->gsdata.A_colors.size() << std::endl;
+	int nt = data->tets.rows();
+	int nc = data->gsdata.A_colors.size();
+	for (int i=0; i<nc; ++i)
+	{
+		// Each vertex in the color should not
+		// be a part of a tet with a vertex in the same color
+		const std::vector<int> &grp = data->gsdata.A_colors[i];
+		int n_grp = grp.size();
+		for (int j=0; j<n_grp; ++j)
+		{
+			int p_idx = grp[j];
+			auto in_tet = [](int idx, const RowVector4i &t)
+			{
+				return (t[0]==idx||t[1]==idx||t[2]==idx||t[3]==idx);
+			};
+
+			for (int k=0; k<nt; ++k)
+			{
+				RowVector4i t = data->tets.row(k);
+				if (!in_tet(p_idx,t))
+					continue;
+
+				for (int l=0; l<n_grp; ++l)
+				{
+					int q_idx = grp[l];
+					if (p_idx==q_idx)
+						continue;
+
+					if (in_tet(q_idx,t))
+					{
+						std::cerr << "p: " << p_idx << ", q: " << q_idx <<
+							", tet (" << k << "): " << t <<
+							", color: " << i <<
+							std::endl;
+					}
+				}
+			}
+		}
+	}
+} // end verify colors
 
 } // namespace admmpd

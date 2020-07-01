@@ -75,7 +75,6 @@ void Collision::detect_discrete_vf(
 	const Eigen::MatrixXd *mesh_x,
 	const Eigen::MatrixXi *mesh_tris,
 	bool mesh_is_obs,
-	double floor_z,
 	std::vector<VFCollisionPair> *pairs)
 {
 	// Any faces to detect against?
@@ -170,9 +169,9 @@ static void parallel_detect(
 	
 	if (td->embmesh != nullptr)
 	{
-		int tet_idx = td->embmesh->vtx_to_tet[i];
+		int tet_idx = td->embmesh->emb_vtx_to_tet[i];
 		RowVector4i tet = td->embmesh->tets.row(tet_idx);
-		Vector4d bary = td->embmesh->barys.row(i);
+		Vector4d bary = td->embmesh->emb_barys.row(i);
 		Vector3d pt = 
 			bary[0] * td->x1->row(tet[0]) +
 			bary[1] * td->x1->row(tet[1]) +
@@ -198,7 +197,6 @@ static void parallel_detect(
 			&td->obsdata->V1,
 			&td->obsdata->F,
 			true,
-			td->floor_z,
 			&tl_pairs );
 
 	//	Collision::detect_discrete_vf(
@@ -227,6 +225,10 @@ int EmbeddedMeshCollision::detect(
 	std::vector<std::vector<VFCollisionPair> > pt_vf_pairs
 		(max_threads, std::vector<VFCollisionPair>());
 
+	double floor_z = this->settings.floor_z;
+	if (!this->settings.test_floor)
+		floor_z = -std::numeric_limits<double>::max();
+
 	DetectThreadData thread_data = {
 		.tetmesh = nullptr,
 		.embmesh = mesh,
@@ -237,11 +239,10 @@ int EmbeddedMeshCollision::detect(
 		.pt_vf_pairs = &pt_vf_pairs
 	};
 
-	int nev = mesh->x_rest.rows();
-
-	TaskParallelSettings settings;
-	BLI_parallel_range_settings_defaults(&settings);
-	BLI_task_parallel_range(0, nev, &thread_data, parallel_detect, &settings);
+	int nev = mesh->emb_rest_x.rows();
+	TaskParallelSettings thrd_settings;
+	BLI_parallel_range_settings_defaults(&thrd_settings);
+	BLI_task_parallel_range(0, nev, &thread_data, parallel_detect, &thrd_settings);
 
 	// Combine thread-local results
 	vf_pairs.clear();
@@ -253,6 +254,59 @@ int EmbeddedMeshCollision::detect(
 
 	return vf_pairs.size();
 } // end detect
+
+void EmbeddedMeshCollision::graph(
+	std::vector<std::set<int> > &g)
+{
+	int np = vf_pairs.size();
+	if (np==0)
+		return;
+
+	int nv = mesh->rest_x.rows();
+	if ((int)g.size() < nv)
+		g.resize(nv, std::set<int>());
+
+	for (int i=0; i<np; ++i)
+	{
+		VFCollisionPair &pair = vf_pairs[i];
+		std::set<int> stencil;
+
+		if (!pair.p_is_obs)
+		{
+			int tet_idx = mesh->emb_vtx_to_tet[pair.p_idx];
+			RowVector4i tet = mesh->tets.row(tet_idx);
+			stencil.emplace(tet[0]);
+			stencil.emplace(tet[1]);
+			stencil.emplace(tet[2]);
+			stencil.emplace(tet[3]);
+		}
+		if (!pair.q_is_obs)
+		{
+			RowVector3i emb_face = mesh->emb_faces.row(pair.q_idx);
+			for (int j=0; j<3; ++j)
+			{
+				int tet_idx = mesh->emb_vtx_to_tet[emb_face[j]];
+				RowVector4i tet = mesh->tets.row(tet_idx);
+				stencil.emplace(tet[0]);
+				stencil.emplace(tet[1]);
+				stencil.emplace(tet[2]);
+				stencil.emplace(tet[3]);	
+			}
+		}
+
+		for (std::set<int>::iterator it = stencil.begin();
+			it != stencil.end(); ++it)
+		{
+			for (std::set<int>::iterator it2 = stencil.begin();
+				it2 != stencil.end(); ++it2)
+			{
+				if (*it == *it2)
+					continue;
+				g[*it].emplace(*it2);
+			}
+		}
+	}
+} // end graph
 
 void EmbeddedMeshCollision::linearize(
 	const Eigen::MatrixXd *x,
@@ -314,8 +368,8 @@ void EmbeddedMeshCollision::linearize(
 		// Obstacle collision
 		if (pair.q_is_obs)
 		{
-			RowVector4d bary = mesh->barys.row(emb_p_idx);
-			int tet_idx = mesh->vtx_to_tet[emb_p_idx];
+			RowVector4d bary = mesh->emb_barys.row(emb_p_idx);
+			int tet_idx = mesh->emb_vtx_to_tet[emb_p_idx];
 			RowVector4i tet = mesh->tets.row(tet_idx);
 			int c_idx = d->size();
 			d->emplace_back(q_n.dot(pair.pt_on_q));

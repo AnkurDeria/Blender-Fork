@@ -6,6 +6,7 @@
 
 #include "admmpd_bvh.h"
 #include "admmpd_types.h"
+#include <set>
 
 namespace admmpd {
 
@@ -29,6 +30,16 @@ public:
         AABBTree<double,3> tree;
     } obsdata;
 
+    struct Settings {
+        double floor_z;
+        bool test_floor;
+        Settings() :
+            floor_z(0),
+//            floor_z(-std::numeric_limits<double>::max()),
+            test_floor(true)
+            {}
+    } settings;
+
     virtual ~Collision() {}
 
     // Performs collision detection.
@@ -36,6 +47,11 @@ public:
     virtual int detect(
         const Eigen::MatrixXd *x0,
         const Eigen::MatrixXd *x1) = 0;
+
+    // Appends the per-vertex graph of dependencies
+    // for constraints (ignores obstacles).
+    virtual void graph(
+        std::vector<std::set<int> > &g) = 0;
 
     // Set the soup of obstacles for this time step.
     // I don't really like having to switch up interface style, but we'll
@@ -48,7 +64,8 @@ public:
         int nf);
 
     // Special case for floor since it's common.
-    virtual void set_floor(double z) = 0;
+    virtual void set_floor(double z) { settings.floor_z=z; }
+    virtual double get_floor() const { return settings.floor_z; }
 
     // Linearize the constraints and return Jacobian.
     virtual void linearize(
@@ -68,31 +85,22 @@ public:
         const Eigen::MatrixXd *mesh_x,
         const Eigen::MatrixXi *mesh_tris,
         bool mesh_is_obs,
-        double floor_z,
         std::vector<VFCollisionPair> *pairs);
 };
 
 // Collision detection against multiple meshes
 class EmbeddedMeshCollision : public Collision {
 public:
-    EmbeddedMeshCollision(const EmbeddedMeshData *mesh_) :
-        mesh(mesh_),
-//        floor_z(-std::numeric_limits<double>::max())
-        floor_z(0)
-        {}
-
-    // A floor is so common that it makes sense to hard
-    // code floor collision instead of using a floor mesh.
-    void set_floor(double z)
-    {
-        floor_z = z;
-    };
+    EmbeddedMeshCollision(const EmbeddedMeshData *mesh_) : mesh(mesh_){}
 
     // Performs collision detection and stores pairs
     int detect(
         const Eigen::MatrixXd *x0,
         const Eigen::MatrixXd *x1);
 
+    void graph(
+        std::vector<std::set<int> > &g);
+    
     // Linearizes the collision pairs about x
     // for the constraint Kx=l
     void linearize(
@@ -103,7 +111,6 @@ public:
 protected:
     // A ptr to the embedded mesh data
     const EmbeddedMeshData *mesh;
-    double floor_z;
 
     // Pairs are compute on detect
     std::vector<VFCollisionPair> vf_pairs;

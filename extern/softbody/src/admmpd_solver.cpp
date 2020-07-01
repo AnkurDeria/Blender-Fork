@@ -46,7 +46,7 @@ bool Solver::init(
 	if (!compute_matrices(options,data))
 		return false;
 
-	printf("Solver::init:\n\tNum tets: %d\n\tNum verts: %d\n",T.rows(),V.rows());
+	printf("Solver::init:\n\tNum tets: %d\n\tNum verts: %d\n",(int)T.rows(),(int)V.rows());
 
 	return true;
 } // end init
@@ -79,8 +79,8 @@ int Solver::solve(
 		update_constraints(options,data,collision);
 
 		// Solve Ax=b s.t. Cx=d
-		ConjugateGradients().solve(options,data);
-		//GaussSeidel().solve(options,data);
+		//ConjugateGradients().solve(options,data,collision);
+		GaussSeidel().solve(options,data,collision);
 
 	} // end solver iters
 
@@ -279,6 +279,10 @@ void Solver::append_energies(
 	int nt = data->tets.rows();
 	BLI_assert(nt > 0);
 
+	int nx = data->x.rows();
+	if ((int)data->energies_graph.size() != nx)
+		data->energies_graph.resize(nx,std::set<int>());
+
 	data->indices.reserve(nt);
 	data->rest_volumes.reserve(nt);
 	data->weights.reserve(nt);
@@ -312,6 +316,18 @@ void Solver::append_energies(
 			continue;
 		}
 
+		int ele_dim = ele.cols();
+		for (int j=0; j<ele_dim; ++j)
+		{
+			int ej = ele[j];
+			for (int k=0; k<ele_dim; ++k)
+			{
+				int ek = ele[k];
+				if (ej==ek)
+					continue;
+				data->energies_graph[ej].emplace(ek);
+			}
+		}
 		data->indices.emplace_back(energy_index, energy_dim);
 		energy_index += energy_dim;
 	}

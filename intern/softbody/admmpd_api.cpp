@@ -158,16 +158,14 @@ static int admmpd_init_with_lattice(
   }
 
   iface->totverts = 0;
-  bool success = admmpd::EmbeddedMesh().generate(in_V,in_F,iface->idata->embmesh,V);
+  bool trim_lattice = true;
+  bool success = admmpd::EmbeddedMesh().generate(in_V,in_F,iface->idata->embmesh,trim_lattice);
   if (success)
   {
-    admmpd::EmbeddedMesh().compute_masses(
-      iface->idata->embmesh,
-      &iface->idata->embmesh->x_rest,
-      V, m);
-  
-    iface->totverts = V->rows();
+    admmpd::EmbeddedMesh().compute_masses(iface->idata->embmesh, m);
     *T = iface->idata->embmesh->tets;
+    *V = iface->idata->embmesh->rest_x;
+    iface->totverts = V->rows();
     return 1;
   }
 

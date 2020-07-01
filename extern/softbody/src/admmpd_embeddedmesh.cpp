@@ -215,11 +215,10 @@ bool EmbeddedMesh::generate(
 	const Eigen::MatrixXd &V, // embedded verts
 	const Eigen::MatrixXi &F, // embedded faces
 	EmbeddedMeshData *emb_mesh, // where embedding is stored
-	Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
 	bool trim_lattice)
 {
-	emb_mesh->faces = F;
-	emb_mesh->x_rest = V;
+	emb_mesh->emb_faces = F;
+	emb_mesh->emb_rest_x = V;
 
 	AlignedBox<double,3> aabb;
 	int nev = V.rows();
@@ -315,14 +314,14 @@ bool EmbeddedMesh::generate(
 		int ntv0 = data.verts.size(); // original num verts
 		int ntv1 = refd_verts.size(); // reduced num verts
 		BLI_assert(ntv1 <= ntv0);
-		x_tets->resize(ntv1,3);
+		emb_mesh->rest_x.resize(ntv1,3);
 		int vtx_count = 0;
 		for (int i=0; i<ntv0; ++i)
 		{
 			if (refd_verts.count(i)>0)
 			{
 				for(int j=0; j<3; ++j){
-					x_tets->operator()(vtx_count,j) = data.verts[i][j];
+					emb_mesh->rest_x(vtx_count,j) = data.verts[i][j];
 				}
 				vtx_old_to_new[i] = vtx_count;
 				vtx_count++;
@@ -342,8 +341,7 @@ bool EmbeddedMesh::generate(
 	}
 
 	// Now compute the baryweighting for embedded vertices
-	return compute_embedding(
-		emb_mesh, &V, x_tets);
+	return compute_embedding(emb_mesh);
 
 } // end gen lattice
 
@@ -352,16 +350,10 @@ bool EmbeddedMesh::generate(
 
 void EmbeddedMesh::compute_masses(
 	EmbeddedMeshData *emb_mesh, // where embedding is stored
-	const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
-	const Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
 	Eigen::VectorXd *masses_tets, // masses of the lattice verts
 	double density_kgm3)
 {
 	BLI_assert(emb_mesh != NULL);
-	BLI_assert(x_embed != NULL);
-	BLI_assert(x_tets != NULL);
-	BLI_assert(x_tets->rows() > 0);
-	BLI_assert(x_tets->cols() == 3);
 	BLI_assert(masses_tets != NULL);
 	BLI_assert(density_kgm3 > 0);
 
@@ -371,18 +363,18 @@ void EmbeddedMesh::compute_masses(
 	// Source: https://github.com/mattoverby/mclscene/blob/master/include/MCL/TetMesh.hpp
 	// Computes volume-weighted masses for each vertex
 	// density_kgm3 is the unit-volume density
-	int nx = x_tets->rows();
+	int nx = emb_mesh->rest_x.rows();
 	masses_tets->resize(nx);
 	masses_tets->setZero();
 	int n_tets = emb_mesh->tets.rows();
 	for (int t=0; t<n_tets; ++t)
 	{
 		RowVector4i tet = emb_mesh->tets.row(t);
-		RowVector3d tet_v0 = x_tets->row(tet[0]);
+		RowVector3d tet_v0 = emb_mesh->rest_x.row(tet[0]);
 		Matrix3d edges;
-		edges.col(0) = x_tets->row(tet[1]) - tet_v0;
-		edges.col(1) = x_tets->row(tet[2]) - tet_v0;
-		edges.col(2) = x_tets->row(tet[3]) - tet_v0;
+		edges.col(0) = emb_mesh->rest_x.row(tet[1]) - tet_v0;
+		edges.col(1) = emb_mesh->rest_x.row(tet[2]) - tet_v0;
+		edges.col(2) = emb_mesh->rest_x.row(tet[3]) - tet_v0;
 		double vol = std::abs((edges).determinant()/6.f);
 		double tet_mass = density_kgm3 * vol;
 		masses_tets->operator[](tet[0]) += tet_mass / 4.f;
@@ -405,8 +397,6 @@ void EmbeddedMesh::compute_masses(
 typedef struct FindTetThreadData {
 	AABBTree<double,3> *tree;
 	EmbeddedMeshData *emb_mesh; // thread sets vtx_to_tet and barys
-	const Eigen::MatrixXd *x_embed;
-	const Eigen::MatrixXd *x_tets;
 } FindTetThreadData;
 
 static void parallel_point_in_tet(
@@ -415,41 +405,40 @@ static void parallel_point_in_tet(
 	const TaskParallelTLS *__restrict UNUSED(tls))
 {
 	FindTetThreadData *td = (FindTetThreadData*)userdata;
-	Vector3d pt = td->x_embed->row(i);
-	PointInTetMeshTraverse<double> traverser(pt, td->x_tets, &td->emb_mesh->tets);
+	Vector3d pt = td->emb_mesh->emb_rest_x.row(i);
+	PointInTetMeshTraverse<double> traverser(pt, &td->emb_mesh->rest_x, &td->emb_mesh->tets);
 	bool success = td->tree->traverse(traverser);
 	int tet_idx = traverser.output.prim;
 	if (success && tet_idx >= 0)
 	{
 		RowVector4i tet = td->emb_mesh->tets.row(tet_idx);
 		Vector3d t[4] = {
-			td->x_tets->row(tet[0]),
-			td->x_tets->row(tet[1]),
-			td->x_tets->row(tet[2]),
-			td->x_tets->row(tet[3])
+			td->emb_mesh->rest_x.row(tet[0]),
+			td->emb_mesh->rest_x.row(tet[1]),
+			td->emb_mesh->rest_x.row(tet[2]),
+			td->emb_mesh->rest_x.row(tet[3])
 		};
-		td->emb_mesh->vtx_to_tet[i] = tet_idx;
+		td->emb_mesh->emb_vtx_to_tet[i] = tet_idx;
 		Vector4d b = barycoords::point_tet(pt,t[0],t[1],t[2],t[3]);
-		td->emb_mesh->barys.row(i) = b;
+		td->emb_mesh->emb_barys.row(i) = b;
 	}
 } // end parallel lin solve
 
 bool EmbeddedMesh::compute_embedding(
-	EmbeddedMeshData *emb_mesh, // where embedding is stored
-	const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
-	const Eigen::MatrixXd *x_tets) // lattice vertices, n x 3
+	EmbeddedMeshData *emb_mesh)
 {
 	BLI_assert(emb_mesh!=NULL);
-	BLI_assert(x_embed!=NULL);
-	BLI_assert(x_tets!=NULL);
 
-	int nv = x_embed->rows();
+	int nv = emb_mesh->emb_rest_x.rows();
 	if (nv==0)
+	{
+		printf("**EmbeddedMesh::compute_embedding: No embedded vertices");
 		return false;
+	}
 
-	emb_mesh->barys.resize(nv,4);
-	emb_mesh->barys.setOnes();
-	emb_mesh->vtx_to_tet.resize(nv);
+	emb_mesh->emb_barys.resize(nv,4);
+	emb_mesh->emb_barys.setOnes();
+	emb_mesh->emb_vtx_to_tet.resize(nv);
 	int nt = emb_mesh->tets.rows();
 
 	// BVH tree for finding point-in-tet and computing
@@ -462,7 +451,7 @@ bool EmbeddedMesh::compute_embedding(
 		tet_aabbs[i].setEmpty();
 		RowVector4i tet = emb_mesh->tets.row(i);
 		for (int j=0; j<4; ++j)
-			tet_aabbs[i].extend(x_tets->row(tet[j]).transpose());
+			tet_aabbs[i].extend(emb_mesh->rest_x.row(tet[j]).transpose());
 
 		tet_aabbs[i].extend(tet_aabbs[i].min()-veta);
 		tet_aabbs[i].extend(tet_aabbs[i].max()+veta);
@@ -473,9 +462,7 @@ bool EmbeddedMesh::compute_embedding(
 
 	FindTetThreadData thread_data = {
 		.tree = &tree,
-		.emb_mesh = emb_mesh,
-		.x_embed = x_embed,
-		.x_tets = x_tets
+		.emb_mesh = emb_mesh
 	};
 	TaskParallelSettings settings;
 	BLI_parallel_range_settings_defaults(&settings);
@@ -485,7 +472,7 @@ bool EmbeddedMesh::compute_embedding(
 	const double eps = 1e-8;
 	for (int i=0; i<nv; ++i)
 	{
-		RowVector4d b = emb_mesh->barys.row(i);
+		RowVector4d b = emb_mesh->emb_barys.row(i);
 		if (b.minCoeff() < -eps)
 		{
 			printf("**Lattice::generate Error: negative barycoords\n");
@@ -505,8 +492,8 @@ bool EmbeddedMesh::compute_embedding(
 
 
 // Export the mesh for funsies
-std::ofstream of("v_lattice.txt"); of << *x_tets; of.close();
-std::ofstream of2("t_lattice.txt"); of2 << emb_mesh->tets; of2.close();
+//std::ofstream of("v_lattice.txt"); of << emb_mesh->rest_x; of.close();
+//std::ofstream of2("t_lattice.txt"); of2 << emb_mesh->tets; of2.close();
 
 	return true;
 
@@ -517,9 +504,9 @@ Eigen::Vector3d EmbeddedMesh::get_mapped_vertex(
 	const Eigen::MatrixXd *x_data,
 	int idx)
 {
-    int t_idx = emb_mesh->vtx_to_tet[idx];
+    int t_idx = emb_mesh->emb_vtx_to_tet[idx];
     RowVector4i tet = emb_mesh->tets.row(t_idx);
-    RowVector4d b = emb_mesh->barys.row(idx);
+    RowVector4d b = emb_mesh->emb_barys.row(idx);
     return Vector3d(
 		x_data->row(tet[0]) * b[0] +
 		x_data->row(tet[1]) * b[1] +

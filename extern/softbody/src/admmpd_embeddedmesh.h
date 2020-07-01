@@ -15,7 +15,6 @@ public:
         const Eigen::MatrixXd &V, // embedded verts
         const Eigen::MatrixXi &F, // embedded faces
         EmbeddedMeshData *emb_mesh, // where embedding is stored
-        Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
         bool trim_lattice = true); // remove elements outside embedded volume
 
     // Returns the vtx mapped from x/v and tets
@@ -28,8 +27,6 @@ public:
     // for the lattice vertices
     void compute_masses(
         EmbeddedMeshData *emb_mesh, // where embedding is stored
-        const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
-        const Eigen::MatrixXd *x_tets, // lattice vertices, n x 3
         Eigen::VectorXd *masses_tets, // masses of the lattice verts
         double density_kgm3 = 2100);
 
@@ -38,9 +35,7 @@ protected:
     // Returns true on success
     // Computes the embedding data, like barycoords
     bool compute_embedding(
-        EmbeddedMeshData *emb_mesh, // where embedding is stored
-        const Eigen::MatrixXd *x_embed, // embedded vertices, p x 3
-        const Eigen::MatrixXd *x_tets); // lattice vertices, n x 3
+        EmbeddedMeshData *emb_mesh);
 
 }; // class Lattice
 

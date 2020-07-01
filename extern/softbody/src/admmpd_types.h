@@ -8,6 +8,7 @@
 #include <Eigen/Sparse>
 #include <Eigen/SparseCholesky>
 #include <vector>
+#include <set>
 
 // TODO template type for float/double
 
@@ -19,8 +20,9 @@ struct Options {
     int max_admm_iters;
     int max_cg_iters;
     int max_gs_iters;
+    double gs_omega; // Gauss-Seidel relaxation
     double mult_k; // stiffness multiplier for constraints
-    double min_res; // min residual for CG solver
+    double min_res; // exit tolerance for global step
     double youngs; // Young's modulus // TODO variable per-tet
     double poisson; // Poisson ratio // TODO variable per-tet
     Eigen::Vector3d grav;
@@ -29,8 +31,9 @@ struct Options {
         max_admm_iters(50),
         max_cg_iters(10),
         max_gs_iters(30),
+        gs_omega(1),
         mult_k(3),
-        min_res(1e-6),
+        min_res(1e-8),
         youngs(10000000),
         poisson(0.399),
         grav(0,0,-9.8)
@@ -49,11 +52,12 @@ struct TetMeshData {
 };
 
 struct EmbeddedMeshData { // i.e. the lattice
-    Eigen::MatrixXd x_rest; // embedded verts at rest
-    Eigen::MatrixXi faces; // embedded faces
+    Eigen::MatrixXd emb_rest_x; // embedded verts at rest
+    Eigen::MatrixXi emb_faces; // embedded faces
+    Eigen::VectorXi emb_vtx_to_tet; // what tet vtx is embedded in, p x 1
+    Eigen::MatrixXd emb_barys; // barycoords of the embedding, p x 4
     Eigen::MatrixXi tets; // lattice elements, m x 4
-    Eigen::VectorXi vtx_to_tet; // what tet vtx is embedded in, p x 1
-    Eigen::MatrixXd barys; // barycoords of the embedding, p x 4
+    Eigen::MatrixXd rest_x; // lattice verts at rest
 }; // type 1
 
 struct SolverData {
@@ -92,6 +96,7 @@ struct SolverData {
         std::vector<std::vector<int> > A3_plus_CtC_colors; // colors of A3+KtK
     } gsdata;
     // Set in append_energies:
+    std::vector<std::set<int> > energies_graph; // per-vertex adjacency list (graph)
 	std::vector<Eigen::Vector2i> indices; // per-energy index into D (row, num rows)
 	std::vector<double> rest_volumes; // per-energy rest volume
 	std::vector<double> weights; // per-energy weights
