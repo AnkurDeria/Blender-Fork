@@ -41,6 +41,11 @@ typedef struct ADMMPDInterfaceData {
     struct ADMMPDInternalData *idata;
 } ADMMPDInterfaceData;
 
+typedef struct ADMMPDInitData {
+    float *verts; // n x 3
+    unsigned int *faces; // m x 3
+} ADMMPDInitData;
+
 // SoftBody bodypoint (contains pos,vec)
 typedef struct BodyPoint BodyPoint;
 
@@ -48,7 +53,7 @@ typedef struct BodyPoint BodyPoint;
 void admmpd_dealloc(ADMMPDInterfaceData*);
 
 // Initializes solver and allocates internal data
-int admmpd_init(ADMMPDInterfaceData*, float *in_verts, unsigned int *in_faces);
+int admmpd_init(ADMMPDInterfaceData*, ADMMPDInitData*);
 
 // Copies BodyPoint data (from SoftBody)
 // to internal vertex position and velocity
@@ -62,6 +67,13 @@ void admmpd_update_obstacles(
     int nv,
     unsigned int *in_faces,
     int nf);
+
+// Updates goal positions
+void admmpd_update_goals(
+    ADMMPDInterfaceData*,
+    float *goal_k, // goal stiffness, nv
+    float *goal_pos, // goal position, nv x 3
+    int nv);
 
 // Copies internal vertex position and velocity data
 // to BodyPoints (from SoftBody) AND surface mesh vertices.

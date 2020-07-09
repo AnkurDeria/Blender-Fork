@@ -37,6 +37,8 @@ bool Solver::init(
 	BLI_assert(V.cols() == 3);
 	BLI_assert(T.rows() > 0);
 	BLI_assert(T.cols() == 4);
+	int nx = V.rows();
+	BLI_assert(m.rows() == nx);
 
 	data->x = V;
 	data->v.resize(V.rows(),3);
@@ -54,7 +56,8 @@ bool Solver::init(
 int Solver::solve(
 	const Options *options,
 	SolverData *data,
-	Collision *collision)
+	Collision *collision,
+	Pin *pin)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
@@ -66,7 +69,7 @@ int Solver::solve(
 	// Init the solve which computes
 	// quantaties like M_xbar and makes sure
 	// the variables are sized correctly.
-	init_solve(options,data);
+	init_solve(options,data,collision,pin);
 
 	// Begin solver loop
 	int iters = 0;
@@ -94,17 +97,24 @@ int Solver::solve(
 
 void Solver::init_solve(
 	const Options *options,
-	SolverData *data)
+	SolverData *data,
+	Collision *collision,
+    Pin *pin)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
 	int nx = data->x.rows();
 	BLI_assert(nx > 0);
+	BLI_assert(data->pin_sqrt_k.rows()==nx);
+	(void)(collision);
 
 	if (data->M_xbar.rows() != nx)
 		data->M_xbar.resize(nx,3);
 
-	// velocity and position
+	// Initialize:
+	// - update velocity with explicit forces
+	// - update pin constraint matrix (goal positions)
+	// - set x init guess
 	double dt = std::max(0.0, options->timestep_s);
 	data->x_start = data->x;
 	for (int i=0; i<nx; ++i)
@@ -112,7 +122,33 @@ void Solver::init_solve(
 		data->v.row(i) += dt*options->grav;
 		RowVector3d xbar_i = data->x.row(i) + dt*data->v.row(i);
 		data->M_xbar.row(i) = data->m[i]*xbar_i;
-		data->x.row(i) = xbar_i; // initial geuss
+		data->x.row(i) = xbar_i; // initial guess
+	}
+
+	// Create pin constraint matrix
+	if (pin)
+	{
+		std::vector<Triplet<double> > trips;
+		std::vector<double> q_coeffs;
+		pin->linearize(&data->x, &trips, &q_coeffs);
+		if (q_coeffs.size()==0) // no springs
+		{
+			data->PtP.resize(nx*3,nx*3);
+			data->PtP.setZero();
+			data->Ptq.resize(nx*3);
+			data->Ptq.setZero();
+		}
+		else
+		{
+			// Scale stiffness by A diagonal max
+			double pin_k_scale = std::sqrt(data->A_diag_max);
+			int np = q_coeffs.size();
+			RowSparseMatrix<double> P(np, nx*3);
+			P.setFromTriplets(trips.begin(), trips.end());
+			data->PtP = pin_k_scale * P.transpose()*P;
+			VectorXd q = Map<VectorXd>(q_coeffs.data(), q_coeffs.size());
+			data->Ptq = pin_k_scale * P.transpose()*q;
+		}
 	}
 
 	// ADMM variables
@@ -205,6 +241,7 @@ bool Solver::compute_matrices(
 	int nx = data->x.rows();
 	BLI_assert(nx > 0);
 	BLI_assert(data->x.cols() == 3);
+	BLI_assert(data->pin_sqrt_k.rows() == nx);
 
 	// Allocate per-vertex data
 	data->x_start = data->x;
@@ -253,11 +290,16 @@ bool Solver::compute_matrices(
 	data->ldltA.compute(data->A);
 	data->b.resize(nx,3);
 	data->b.setZero();
+	data->A_diag_max = data->A.diagonal().maxCoeff();
 
 	// Constraint data
-	data->spring_k = options->mult_k*data->A.diagonal().maxCoeff();
+	data->spring_k = options->mult_k*data->A_diag_max;
 	data->C.resize(1,nx*3);
 	data->d = VectorXd::Zero(1);
+
+	data->PtP.resize(nx*3,nx*3);
+	data->pin_sqrt_k.resize(nx);
+	data->pin_sqrt_k.setZero();
 
 	// ADMM dual/lagrange
 	data->z.resize(n_row_D,3);

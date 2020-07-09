@@ -49,6 +49,8 @@ protected:
 		AABB aabb;
 		Node *left, *right;
 		std::vector<int> prims;
+		VecType normal;
+		T angle;
 		bool is_leaf() const { return prims.size()>0; }
 		Node() : left(nullptr), right(nullptr) {}
 		~Node()

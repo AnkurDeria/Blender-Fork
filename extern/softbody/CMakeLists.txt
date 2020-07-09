@@ -43,6 +43,8 @@ set(SRC
 	src/admmpd_linsolve.cpp
 	src/admmpd_math.h
 	src/admmpd_math.cpp
+	src/admmpd_pin.h
+	src/admmpd_pin.cpp
 	src/admmpd_solver.h
 	src/admmpd_solver.cpp
 	src/admmpd_tetmesh.h

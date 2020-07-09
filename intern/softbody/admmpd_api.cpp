@@ -27,6 +27,7 @@
 #include "admmpd_tetmesh.h"
 #include "admmpd_embeddedmesh.h"
 #include "admmpd_collision.h"
+#include "admmpd_pin.h"
 
 #include "tetgen_api.h"
 #include "DNA_mesh_types.h" // Mesh
@@ -44,6 +45,7 @@ struct ADMMPDInternalData {
   admmpd::TetMeshData *tetmesh; // init_mode=0
   admmpd::EmbeddedMeshData *embmesh; // init_mode=1
   admmpd::Collision *collision;
+  admmpd::Pin *pin;
   int in_totverts; // number of input verts
 };
 
@@ -172,11 +174,11 @@ static int admmpd_init_with_lattice(
   return 0;
 }
 
-int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_faces)
+int admmpd_init(ADMMPDInterfaceData *iface, ADMMPDInitData *in_mesh)
 {
   if (iface==NULL)
     return 0;
-  if (in_verts==NULL || in_faces==NULL)
+  if (in_mesh->verts==NULL || in_mesh->faces==NULL)
     return 0;
   if (iface->mesh_totverts<=0 || iface->mesh_totfaces<=0)
     return 0;
@@ -193,6 +195,7 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
   iface->idata->tetmesh = new admmpd::TetMeshData();
   iface->idata->embmesh = new admmpd::EmbeddedMeshData();
   iface->idata->collision = NULL;
+  iface->idata->pin = NULL;
 
   // Generate tets and vertices
   Eigen::MatrixXd V; // defo verts
@@ -203,19 +206,20 @@ int admmpd_init(ADMMPDInterfaceData *iface, float *in_verts, unsigned int *in_fa
   {
     default:
     case 0: {
-      gen_success = admmpd_init_with_tetgen(iface,in_verts,in_faces,&V,&T,&m);
+      gen_success = admmpd_init_with_tetgen(iface,in_mesh->verts,in_mesh->faces,&V,&T,&m);
       //iface->idata->collision = new admmpd::TetMeshCollision();
       } break;
     case 1: {
-      gen_success = admmpd_init_with_lattice(iface,in_verts,in_faces,&V,&T,&m);
+      gen_success = admmpd_init_with_lattice(iface,in_mesh->verts,in_mesh->faces,&V,&T,&m);
       iface->idata->collision = new admmpd::EmbeddedMeshCollision(iface->idata->embmesh);
+      iface->idata->pin = new admmpd::EmbeddedMeshPin(iface->idata->embmesh);
     } break;
   }
   if (!gen_success || iface->totverts==0)
   {
     printf("**ADMMPD Failed to generate tets\n");
     return 0;
-  } 
+  }
 
   // Initialize
   bool init_success = false;
@@ -270,6 +274,30 @@ void admmpd_update_obstacles(
 
     iface->idata->collision->set_obstacles(
       in_verts_0, in_verts_1, nv, in_faces, nf);
+}
+
+void admmpd_update_goals(
+    ADMMPDInterfaceData *iface,
+    float *goal_k, // goal stiffness, nv
+    float *goal_pos, // goal position, nv x 3
+    int nv)
+{
+    if (iface==NULL || goal_k==NULL || goal_pos==NULL)
+      return;
+    if (iface->idata==NULL)
+      return;
+    if (iface->idata->pin==NULL)
+      return;
+
+    for (int i=0; i<nv; ++i)
+    {
+      if (goal_k[i] <= 0.f)
+        continue;
+
+      Eigen::Vector3d ki = Eigen::Vector3d::Ones() * goal_k[i];
+      Eigen::Vector3d qi(goal_pos[i*3+0], goal_pos[i*3+1], goal_pos[i*3+2]);
+      iface->idata->pin->set_pin(i,qi,ki);
+    }
 }
 
 void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *pts, float (*vertexCos)[3])
@@ -328,7 +356,11 @@ void admmpd_solve(ADMMPDInterfaceData *iface)
 
   try
   {
-    admmpd::Solver().solve(iface->idata->options,iface->idata->data,iface->idata->collision);
+    admmpd::Solver().solve(
+        iface->idata->options,
+        iface->idata->data,
+        iface->idata->collision,
+        iface->idata->pin);
   }
   catch(const std::exception &e)
   {

@@ -6,6 +6,7 @@
 
 #include "admmpd_types.h"
 #include "admmpd_collision.h"
+#include "admmpd_pin.h"
 
 namespace admmpd {
 
@@ -24,10 +25,12 @@ public:
     // Solve a single time step.
     // Returns number of iterations.
     // Collision ptr can be null.
+    // Pin ptr can be null
     int solve(
         const Options *options,
         SolverData *data,
-        Collision *collision);
+        Collision *collision,
+        Pin *pin);
 
 protected:
 
@@ -38,7 +41,9 @@ protected:
 
     void init_solve(
         const Options *options,
-        SolverData *data);
+        SolverData *data,
+        Collision *collision,
+        Pin *pin);
 
 	void solve_local_step(
         const Options *options,

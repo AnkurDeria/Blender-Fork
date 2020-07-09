@@ -66,7 +66,7 @@ struct SolverData {
     Eigen::MatrixXd x; // vertices, n x 3
     Eigen::MatrixXd v; // velocity, n x 3
     // Set in compute_matrices: 
-    Eigen::MatrixXd x_start; // x at beginning of timestep, n x 3
+    Eigen::MatrixXd x_start; // x at t=0 (and goal if k>0), n x 3
     Eigen::VectorXd m; // masses, n x 1
     Eigen::MatrixXd z; // ADMM z variable
     Eigen::MatrixXd u; // ADMM u aug lag with W inv
@@ -76,16 +76,20 @@ struct SolverData {
     RowSparseMatrix<double> D; // reduction matrix
     RowSparseMatrix<double> DtW2; // D'W^2
     RowSparseMatrix<double> A; // M + D'W^2D
-    RowSparseMatrix<double> C; // linearized constraints
+    double A_diag_max; // Max coeff of diag of A
+    RowSparseMatrix<double> C; // linearized constraints (cols = n x 3)
     Eigen::VectorXd d; // constraints rhs
     double spring_k; // constraint stiffness
+    RowSparseMatrix<double> PtP; // pin_k Pt P
+    Eigen::VectorXd Ptq; // pin_k Pt q
+    Eigen::VectorXd pin_sqrt_k; // per-vertex pin (goal) sqrt stiffness
 	Eigen::SimplicialLDLT<Eigen::SparseMatrix<double> > ldltA;
     struct GlobalStepData { // Temporaries used in global step
         RowSparseMatrix<double> A3; // (M + D'W^2D) n3 x n3
-        RowSparseMatrix<double> CtC; // k * Ct C
-        RowSparseMatrix<double> A3_plus_CtC;
+        RowSparseMatrix<double> CtC; // col_k * Ct C
+        RowSparseMatrix<double> A3_CtC_PtP;
         Eigen::VectorXd Ctd; // k * Ct d
-        Eigen::VectorXd b3_plus_Ctd; // M xbar + DtW2(z-u) + k Kt l
+        Eigen::VectorXd b3_Ctd_Ptx; // M xbar + DtW2(z-u) + col_k Ct d + pin_k Pt x_start
         // Used by Conjugate-Gradients:
         Eigen::VectorXd r; // residual
         Eigen::VectorXd z; // auxilary

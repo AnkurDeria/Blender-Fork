@@ -54,10 +54,12 @@ void ConjugateGradients::solve(
 	BLI_assert(data->C.cols() == nx*3);
 	BLI_assert(data->d.rows() > 0);
 	BLI_assert(data->C.rows() == data->d.rows());
+	BLI_assert(data->PtP.cols() == nx*3);
+	BLI_assert(data->PtP.rows() == nx*3);
 
 	// If we don't have any constraints, we don't need to perform CG
 	data->b.noalias() = data->M_xbar + data->DtW2*(data->z-data->u);
-	if (data->C.nonZeros()==0)
+	if (data->C.nonZeros()==0 && data->PtP.nonZeros()==0)
 	{
 		data->x = data->ldltA.solve(data->b);
 		return;
@@ -71,28 +73,30 @@ void ConjugateGradients::solve(
 		gsdata->z.resize(nx*3);
 		gsdata->p.resize(nx*3);
 		gsdata->A3p.resize(nx*3);
-		gsdata->b3_plus_Ctd.resize(nx*3);
+		gsdata->b3_Ctd_Ptx.resize(nx*3);
 		make_n3(data->A, gsdata->A3);
 	}
 
-	gsdata->Ctd = data->spring_k * data->C.transpose()*data->d;
 	gsdata->CtC = data->spring_k * data->C.transpose()*data->C;
-	gsdata->A3_plus_CtC = gsdata->A3 + gsdata->CtC;
+	gsdata->Ctd = data->spring_k * data->C.transpose()*data->d;
+	gsdata->A3_CtC_PtP = gsdata->A3 + gsdata->CtC + data->PtP;
 	VectorXd x3(nx*3);
 	for (int i=0; i<nx; ++i)
 	{
-		Vector3d bi = data->b.row(i);
-		gsdata->b3_plus_Ctd.segment<3>(i*3) = bi+gsdata->Ctd.segment<3>(i*3);
+		gsdata->b3_Ctd_Ptx.segment<3>(i*3) =
+			data->b.row(i).transpose() + 
+			gsdata->Ctd.segment<3>(i*3) +
+			data->Ptq.segment<3>(i*3);
 		x3.segment<3>(i*3) = data->x.row(i);
 	}
 
-	gsdata->r.noalias() = gsdata->b3_plus_Ctd - gsdata->A3_plus_CtC*x3;
+	gsdata->r.noalias() = gsdata->b3_Ctd_Ptx - gsdata->A3_CtC_PtP*x3;
 	solve_Ax_b(data,&gsdata->z,&gsdata->r);
 	gsdata->p = gsdata->z;
 
 	for (int iter=0; iter<options->max_cg_iters; ++iter)
 	{
-		gsdata->A3p.noalias() = gsdata->A3_plus_CtC*gsdata->p;
+		gsdata->A3p.noalias() = gsdata->A3_CtC_PtP*gsdata->p;
 		double p_dot_Ap = gsdata->p.dot(gsdata->A3p);
 		if (p_dot_Ap==0.0)
 			break;
@@ -196,7 +200,7 @@ void GaussSeidel::solve(
 		Vector3d inv_aii(0,0,0);
 		for (int j=0; j<3; ++j)
 		{
-			InnerIter rit(td->data->gsdata.A3_plus_CtC, idx*3+j);
+			InnerIter rit(td->data->gsdata.A3_CtC_PtP, idx*3+j);
 			for (; rit; ++rit)
 			{
 				double v = rit.value();
@@ -218,7 +222,7 @@ void GaussSeidel::solve(
 		} // end loop segment
 
 		// Update x
-		Vector3d bi = td->data->gsdata.b3_plus_Ctd.segment<3>(idx*3);
+		Vector3d bi = td->data->gsdata.b3_Ctd_Ptx.segment<3>(idx*3);
 
 		//Vector3d bi = td->data->b.row(idx);
 		Vector3d xi = td->data->x.row(idx);
@@ -277,6 +281,15 @@ void GaussSeidel::init_solve(
 		SolverData *data,
 		Collision *collision)
 {
+
+	// TODO:
+	//
+	// When it comes to improving run time of Gauss-Seidel after
+	// the instability issues have been addressed, reducing the
+	// matrix-vector mults that occur here should be a priority.
+	// Many of them are unnecessary and can be done
+	// within the Gauss-Seidel sweeps!
+
 	BLI_assert(options != nullptr);
 	BLI_assert(data != nullptr);
 	BLI_assert(collision != nullptr);
@@ -308,13 +321,13 @@ void GaussSeidel::init_solve(
 	{
 		data->gsdata.CtC = data->spring_k * data->C.transpose()*data->C;
 		data->gsdata.Ctd.noalias() = data->spring_k * data->C.transpose()*data->d;
-		data->gsdata.A3_plus_CtC = data->gsdata.A3 + data->gsdata.CtC;
-		data->gsdata.b3_plus_Ctd.resize(nx*3);
+		data->gsdata.A3_CtC_PtP = data->gsdata.A3 + data->gsdata.CtC;
+		data->gsdata.b3_Ctd_Ptx.resize(nx*3);
 		for (int i=0; i<nx; ++i)
 		{
-			data->gsdata.b3_plus_Ctd[i*3+0] = data->b(i,0)+data->gsdata.Ctd[i*3+0];
-			data->gsdata.b3_plus_Ctd[i*3+1] = data->b(i,1)+data->gsdata.Ctd[i*3+1];
-			data->gsdata.b3_plus_Ctd[i*3+2] = data->b(i,2)+data->gsdata.Ctd[i*3+2];
+			data->gsdata.b3_Ctd_Ptx[i*3+0] = data->b(i,0)+data->gsdata.Ctd[i*3+0];
+			data->gsdata.b3_Ctd_Ptx[i*3+1] = data->b(i,1)+data->gsdata.Ctd[i*3+1];
+			data->gsdata.b3_Ctd_Ptx[i*3+2] = data->b(i,2)+data->gsdata.Ctd[i*3+2];
 		}
 		std::vector<std::set<int> > c_graph;
 		collision->graph(c_graph);
@@ -328,13 +341,13 @@ void GaussSeidel::init_solve(
 		if (data->gsdata.Ctd.rows() != nx*3)
 			data->gsdata.Ctd.resize(nx*3);
 		data->gsdata.Ctd.setZero();
-		data->gsdata.A3_plus_CtC = data->gsdata.A3;
-		data->gsdata.b3_plus_Ctd.resize(nx*3);
+		data->gsdata.A3_CtC_PtP = data->gsdata.A3;
+		data->gsdata.b3_Ctd_Ptx.resize(nx*3);
 		for (int i=0; i<nx; ++i)
 		{
-			data->gsdata.b3_plus_Ctd[i*3+0] = data->b(i,0);
-			data->gsdata.b3_plus_Ctd[i*3+1] = data->b(i,1);
-			data->gsdata.b3_plus_Ctd[i*3+2] = data->b(i,2);
+			data->gsdata.b3_Ctd_Ptx[i*3+0] = data->b(i,0);
+			data->gsdata.b3_Ctd_Ptx[i*3+1] = data->b(i,1);
+			data->gsdata.b3_Ctd_Ptx[i*3+2] = data->b(i,2);
 		}
 		data->gsdata.A3_plus_CtC_colors = data->gsdata.A_colors;
 	}
