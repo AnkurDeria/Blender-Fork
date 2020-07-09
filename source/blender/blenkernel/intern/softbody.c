@@ -3734,9 +3734,9 @@ static void admmpd_update_goal_positions(Object *ob, float (*vertexCos)[3])
   int defgroup_index = me->dvert ? (sb->vertgroup - 1) : -1;
 
   for (int i=0; i<nv; i++) {
-    goal_k[i] = 0.7; // softbody default
+    goal_k[i] = 0.1;
     if ((ob->softflag & OB_SB_GOAL) && (defgroup_index != -1)) {
-      goal_k[i] *= BKE_defvert_find_weight(&me->dvert[i], defgroup_index);
+      goal_k[i] = BKE_defvert_find_weight(&me->dvert[i], defgroup_index);
     }
 
     float vi[3];

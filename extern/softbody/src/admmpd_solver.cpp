@@ -141,7 +141,7 @@ void Solver::init_solve(
 		else
 		{
 			// Scale stiffness by A diagonal max
-			double pin_k_scale = std::sqrt(data->A_diag_max);
+			double pin_k_scale = data->A_diag_max;
 			int np = q_coeffs.size();
 			RowSparseMatrix<double> P(np, nx*3);
 			P.setFromTriplets(trips.begin(), trips.end());
