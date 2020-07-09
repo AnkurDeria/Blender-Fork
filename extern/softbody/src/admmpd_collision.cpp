@@ -219,6 +219,12 @@ int EmbeddedMeshCollision::detect(
 	if (mesh==NULL)
 		return 0;
 
+	// Do we even need to process collisions?
+	if (!this->settings.test_floor &&
+		!this->settings.self_collision &&
+		this->obsdata.F.rows()==0)
+		return 0;
+
 	update_bvh(x0,x1);
 
 	int max_threads = std::max(1,BLI_system_thread_count());

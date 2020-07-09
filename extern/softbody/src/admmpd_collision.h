@@ -33,10 +33,11 @@ public:
     struct Settings {
         double floor_z;
         bool test_floor;
+        bool self_collision;
         Settings() :
-            floor_z(-0.5),
-//            floor_z(-std::numeric_limits<double>::max()),
-            test_floor(true)
+            floor_z(-std::numeric_limits<double>::max()),
+            test_floor(false),
+            self_collision(false)
             {}
     } settings;
 

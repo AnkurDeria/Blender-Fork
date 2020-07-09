@@ -21,7 +21,8 @@ struct Options {
     int max_cg_iters;
     int max_gs_iters;
     double gs_omega; // Gauss-Seidel relaxation
-    double mult_k; // stiffness multiplier for constraints
+    double mult_ck; // stiffness multiplier for constraints
+    double mult_pk; // (global) stiffness multiplier for pins
     double min_res; // exit tolerance for global step
     double youngs; // Young's modulus // TODO variable per-tet
     double poisson; // Poisson ratio // TODO variable per-tet
@@ -32,9 +33,10 @@ struct Options {
         max_cg_iters(10),
         max_gs_iters(100),
         gs_omega(1),
-        mult_k(1),
+        mult_ck(1),
+        mult_pk(0.001),
         min_res(1e-8),
-        youngs(10000000),
+        youngs(1000000),
         poisson(0.399),
         grav(0,0,-9.8)
         {}
@@ -79,10 +81,8 @@ struct SolverData {
     double A_diag_max; // Max coeff of diag of A
     RowSparseMatrix<double> C; // linearized constraints (cols = n x 3)
     Eigen::VectorXd d; // constraints rhs
-    double spring_k; // constraint stiffness
     RowSparseMatrix<double> PtP; // pin_k Pt P
     Eigen::VectorXd Ptq; // pin_k Pt q
-    Eigen::VectorXd pin_sqrt_k; // per-vertex pin (goal) sqrt stiffness
 	Eigen::SimplicialLDLT<Eigen::SparseMatrix<double> > ldltA;
     struct GlobalStepData { // Temporaries used in global step
         RowSparseMatrix<double> A3; // (M + D'W^2D) n3 x n3

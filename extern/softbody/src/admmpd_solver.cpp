@@ -105,7 +105,6 @@ void Solver::init_solve(
 	BLI_assert(options != NULL);
 	int nx = data->x.rows();
 	BLI_assert(nx > 0);
-	BLI_assert(data->pin_sqrt_k.rows()==nx);
 	(void)(collision);
 
 	if (data->M_xbar.rows() != nx)
@@ -141,7 +140,7 @@ void Solver::init_solve(
 		else
 		{
 			// Scale stiffness by A diagonal max
-			double pin_k_scale = data->A_diag_max;
+			double pin_k_scale = options->mult_pk * data->A_diag_max;
 			int np = q_coeffs.size();
 			RowSparseMatrix<double> P(np, nx*3);
 			P.setFromTriplets(trips.begin(), trips.end());
@@ -241,7 +240,6 @@ bool Solver::compute_matrices(
 	int nx = data->x.rows();
 	BLI_assert(nx > 0);
 	BLI_assert(data->x.cols() == 3);
-	BLI_assert(data->pin_sqrt_k.rows() == nx);
 
 	// Allocate per-vertex data
 	data->x_start = data->x;
@@ -293,13 +291,12 @@ bool Solver::compute_matrices(
 	data->A_diag_max = data->A.diagonal().maxCoeff();
 
 	// Constraint data
-	data->spring_k = options->mult_k*data->A_diag_max;
 	data->C.resize(1,nx*3);
 	data->d = VectorXd::Zero(1);
 
 	data->PtP.resize(nx*3,nx*3);
-	data->pin_sqrt_k.resize(nx);
-	data->pin_sqrt_k.setZero();
+	data->Ptq.resize(nx*3);
+	data->Ptq.setZero();
 
 	// ADMM dual/lagrange
 	data->z.resize(n_row_D,3);

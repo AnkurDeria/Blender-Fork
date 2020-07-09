@@ -77,8 +77,9 @@ void ConjugateGradients::solve(
 		make_n3(data->A, gsdata->A3);
 	}
 
-	gsdata->CtC = data->spring_k * data->C.transpose()*data->C;
-	gsdata->Ctd = data->spring_k * data->C.transpose()*data->d;
+	double col_k = options->mult_ck * data->A_diag_max;
+	gsdata->CtC = col_k * data->C.transpose()*data->C;
+	gsdata->Ctd = col_k * data->C.transpose()*data->d;
 	gsdata->A3_CtC_PtP = gsdata->A3 + gsdata->CtC + data->PtP;
 	VectorXd x3(nx*3);
 	for (int i=0; i<nx; ++i)
@@ -319,8 +320,9 @@ void GaussSeidel::init_solve(
 	// Finally, the new global matrix and rhs
 	if (has_constraints)
 	{
-		data->gsdata.CtC = data->spring_k * data->C.transpose()*data->C;
-		data->gsdata.Ctd.noalias() = data->spring_k * data->C.transpose()*data->d;
+		double col_k = options->mult_ck * data->A_diag_max;
+		data->gsdata.CtC = col_k * data->C.transpose()*data->C;
+		data->gsdata.Ctd.noalias() = col_k * data->C.transpose()*data->d;
 		data->gsdata.A3_CtC_PtP = data->gsdata.A3 + data->gsdata.CtC;
 		data->gsdata.b3_Ctd_Ptx.resize(nx*3);
 		for (int i=0; i<nx; ++i)
