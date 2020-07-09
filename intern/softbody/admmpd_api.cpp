@@ -332,6 +332,7 @@ void admmpd_solve(ADMMPDInterfaceData *iface)
   }
   catch(const std::exception &e)
   {
+    iface->idata->data->x = iface->idata->data->x_start;
     printf("**ADMMPD Error on solve: %s\n", e.what());
   }
 }

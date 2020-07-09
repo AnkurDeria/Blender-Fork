@@ -79,8 +79,8 @@ int Solver::solve(
 		update_constraints(options,data,collision);
 
 		// Solve Ax=b s.t. Cx=d
-		//ConjugateGradients().solve(options,data,collision);
-		GaussSeidel().solve(options,data,collision);
+		ConjugateGradients().solve(options,data,collision);
+		//GaussSeidel().solve(options,data,collision);
 
 	} // end solver iters
 

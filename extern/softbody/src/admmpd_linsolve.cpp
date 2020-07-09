@@ -199,12 +199,12 @@ void GaussSeidel::solve(
 			InnerIter rit(td->data->gsdata.A3_plus_CtC, idx*3+j);
 			for (; rit; ++rit)
 			{
-				int r = rit.row();
-				int c = rit.col();
 				double v = rit.value();
 				if (v==0.0)
 					continue;
 
+				int r = rit.row();
+				int c = rit.col();
 				if (r==c) // Diagonal
 				{
 					inv_aii[j] = 1.0/v;
@@ -218,17 +218,29 @@ void GaussSeidel::solve(
 		} // end loop segment
 
 		// Update x
-		Vector3d bi = td->data->b.row(idx).transpose()
-			+ td->data->gsdata.Ctd.segment<3>(idx*3);
+		Vector3d bi = td->data->gsdata.b3_plus_Ctd.segment<3>(idx*3);
+
+		//Vector3d bi = td->data->b.row(idx);
 		Vector3d xi = td->data->x.row(idx);
 		Vector3d xi_new = (bi-LUx);
-
 		for (int j=0; j<3; ++j)
 			xi_new[j] *= inv_aii[j];
+
+		if (xi_new.norm()>1000 || xi_new.norm()<-1000)
+		{
+			std::cout << "idx: " << idx << std::endl;
+			std::cout << "xi: " << xi_new.transpose() << std::endl;
+			std::cout << "bi+ctd: " << bi.transpose() << std::endl;
+			std::cout << "bi: " << td->data->b.row(idx) << std::endl;
+			std::cout << "LUx: " << LUx.transpose() << std::endl;
+			std::cout << "aii: " << inv_aii.transpose() << std::endl;
+			throw std::runtime_error("Gauss Seidel exploded");
+		}
+
 		td->data->x.row(idx) = xi*(1.0-omega) + xi_new*omega;
 
 		// Check fast-query constraints
-		double floor_z = td->collision->get_floor();
+//		double floor_z = td->collision->get_floor();
 //		if (td->data->x(idx,2) < floor_z)
 //			td->data->x(idx,2) = floor_z;
 
@@ -249,6 +261,7 @@ void GaussSeidel::solve(
 		{
 			thread_data.color = color;
 			int n_inds = data->gsdata.A3_plus_CtC_colors[color].size();
+			thrd_settings.use_threading = false;
 			BLI_task_parallel_range(0, n_inds, &thread_data, parallel_gs_sweep, &thrd_settings);
 		} // end loop colors
 
@@ -341,6 +354,14 @@ void GaussSeidel::compute_colors(
 		vertex_constraints_graph.size()==0 ||
 		(int)vertex_constraints_graph.size()==n_nodes);
 
+	{
+		colors.clear();
+		colors.resize(n_nodes, std::vector<int>());
+		for (int i=0; i<n_nodes; ++i)
+			colors[i].emplace_back(i);
+		return;
+	}
+	
 	// Graph color settings
 	int init_palette_size = 6;
 

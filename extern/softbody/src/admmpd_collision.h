@@ -34,7 +34,7 @@ public:
         double floor_z;
         bool test_floor;
         Settings() :
-            floor_z(0),
+            floor_z(-0.5),
 //            floor_z(-std::numeric_limits<double>::max()),
             test_floor(true)
             {}

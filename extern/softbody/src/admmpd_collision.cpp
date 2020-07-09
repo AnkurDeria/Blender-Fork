@@ -320,6 +320,7 @@ void EmbeddedMeshCollision::linearize(
 	if (np==0)
 		return;
 
+	//int nx = x->rows();
 	d->reserve((int)d->size() + np);
 	trips->reserve((int)trips->size() + np*3*4);
 
@@ -327,13 +328,6 @@ void EmbeddedMeshCollision::linearize(
 	{
 		VFCollisionPair &pair = vf_pairs[i];
 		int emb_p_idx = pair.p_idx;
-
-
-    //p_idx(-1), // point
-    //p_is_obs(0), // 0 or 1
-    //q_idx(-1), // face
-    //q_is_obs(0), // 0 or 1
-//	pt_on_q(0,0,0)
 
 		// Compute normal of triangle at x
 		Vector3d q_n(0,0,0);
