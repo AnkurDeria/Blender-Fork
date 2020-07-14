@@ -37,8 +37,7 @@ bool Solver::init(
 	BLI_assert(V.cols() == 3);
 	BLI_assert(T.rows() > 0);
 	BLI_assert(T.cols() == 4);
-	int nx = V.rows();
-	BLI_assert(m.rows() == nx);
+	BLI_assert(m.rows() == V.rows());
 
 	data->x = V;
 	data->v.resize(V.rows(),3);

@@ -6,6 +6,7 @@
 
 #include "admmpd_bvh.h"
 #include "admmpd_types.h"
+#include "admmpd_embeddedmesh.h"
 #include <unordered_map>
 #include <vector>
 
@@ -46,7 +47,7 @@ public:
 
 class EmbeddedMeshPin : public Pin {
 public:
-    EmbeddedMeshPin(const EmbeddedMeshData *mesh_) : mesh(mesh_){}
+    EmbeddedMeshPin(const EmbeddedMesh *mesh_) : mesh(mesh_){}
 
     // Clears all pins
     void clear();
@@ -76,7 +77,7 @@ public:
 
 protected:
     // A ptr to the embedded mesh data
-    const EmbeddedMeshData *mesh;
+    const EmbeddedMesh *mesh;
 
     // Pins for embedded vertices:
     std::unordered_map<int,Eigen::Vector3d> pin_k;

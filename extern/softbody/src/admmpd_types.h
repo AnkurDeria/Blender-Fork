@@ -53,15 +53,6 @@ struct TetMeshData {
     Eigen::MatrixXi tets; // internal elements, m x 4
 };
 
-struct EmbeddedMeshData { // i.e. the lattice
-    Eigen::MatrixXd emb_rest_x; // embedded verts at rest
-    Eigen::MatrixXi emb_faces; // embedded faces
-    Eigen::VectorXi emb_vtx_to_tet; // what tet vtx is embedded in, p x 1
-    Eigen::MatrixXd emb_barys; // barycoords of the embedding, p x 4
-    Eigen::MatrixXi tets; // lattice elements, m x 4
-    Eigen::MatrixXd rest_x; // lattice verts at rest
-}; // type 1
-
 struct SolverData {
     // Set from input
     Eigen::MatrixXi tets; // elements t x 4, copy from mesh

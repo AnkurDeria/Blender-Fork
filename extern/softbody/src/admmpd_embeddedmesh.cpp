@@ -2,13 +2,14 @@
 // Distributed under the MIT License.
 
 #include "admmpd_embeddedmesh.h"
-#include "admmpd_math.h"
+#include "admmpd_geom.h"
 #include "admmpd_bvh.h"
 #include "admmpd_bvh_traverse.h"
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
 #include <set>
+#include <numeric>
 #include "BLI_task.h" // threading
 #include "BLI_assert.h"
 
@@ -179,7 +180,8 @@ static inline void subdivide_cube(
 	}
 
 	// cv are the cube vertices, listed clockwise
-	// with the bottom plane first, then top plane
+	// with the bottom plane first, then top plane.
+	// This is basically a dumb version of an octree.
 	Vector3d vfront = 0.25*(cv[0]+cv[1]+cv[5]+cv[4]); // front (+z)
 	Vector3d vback = 0.25*(cv[3]+cv[2]+cv[6]+cv[7]); // back (-z)
 	Vector3d vleft = 0.25*(cv[0]+cv[3]+cv[7]+cv[4]); // left (-x)
@@ -214,12 +216,96 @@ static inline void subdivide_cube(
 bool EmbeddedMesh::generate(
 	const Eigen::MatrixXd &V, // embedded verts
 	const Eigen::MatrixXi &F, // embedded faces
-	EmbeddedMeshData *emb_mesh, // where embedding is stored
-	bool trim_lattice)
+	bool trim_lattice,
+	int subdiv_levels)
 {
-	emb_mesh->emb_faces = F;
-	emb_mesh->emb_rest_x = V;
+	emb_faces = F;
+	emb_rest_x = V;
+	emb_sdf.generate(&V,&F);
+	AlignedBox<double,3> aabb = emb_sdf.box();
 
+	// Recursive subdivide of cells
+	LatticeData data;
+	data.V = &V;
+	int nev = V.rows();
+	std::vector<int> pts_in_box(nev);
+	std::iota(pts_in_box.begin(), pts_in_box.end(), 0);
+	Vector3d min = aabb.min();
+	Vector3d max = aabb.max();
+	std::vector<Vector3d> b0 = {
+		Vector3d(min[0], min[1], max[2]),
+		Vector3d(max[0], min[1], max[2]),
+		Vector3d(max[0], min[1], min[2]),
+		min,
+		Vector3d(min[0], max[1], max[2]),
+		max,
+		Vector3d(max[0], max[1], min[2]),
+		Vector3d(min[0], max[1], min[2])
+	};
+	subdivide_cube(&data,b0,pts_in_box,subdiv_levels);
+	merge_close_vertices(&data);
+
+	// Loop over tets and remove as needed.
+	// Mark referenced vertices to compute a mapping.
+	int nt0 = data.tets.size();
+	std::vector<int> keep_tet(nt0,1);
+	std::set<int> refd_verts;
+	{
+		int tet_idx = 0;
+		for (std::vector<Vector4i>::iterator it = data.tets.begin();
+			it != data.tets.end(); ++tet_idx)
+		{
+			bool keep = keep_tet[tet_idx];
+			if (keep)
+			{
+				const Vector4i &t = *it;
+				refd_verts.emplace(t[0]);
+				refd_verts.emplace(t[1]);
+				refd_verts.emplace(t[2]);
+				refd_verts.emplace(t[3]);
+				++it;
+			}
+			else { it = data.tets.erase(it); }
+		}
+	}
+
+	// Copy data into matrices and remove unreferenced
+	{
+		// Computing a mapping of vertices from old to new
+		// Delete any unreferenced vertices
+		std::unordered_map<int,int> vtx_old_to_new;
+		int ntv0 = data.verts.size(); // original num verts
+		int ntv1 = refd_verts.size(); // reduced num verts
+		BLI_assert(ntv1 <= ntv0);
+		lat_rest_x.resize(ntv1,3);
+		int vtx_count = 0;
+		for (int i=0; i<ntv0; ++i)
+		{
+			if (refd_verts.count(i)>0)
+			{
+				for(int j=0; j<3; ++j){
+					lat_rest_x(vtx_count,j) = data.verts[i][j];
+				}
+				vtx_old_to_new[i] = vtx_count;
+				vtx_count++;
+			}
+		}
+
+		// Copy tets to matrix data and update vertices
+		int nt = data.tets.size();
+		lat_tets.resize(nt,4);
+		for(int i=0; i<nt; ++i){
+			for(int j=0; j<4; ++j){
+				int old_idx = data.tets[i][j];
+				BLI_assert(vtx_old_to_new.count(old_idx)>0);
+				lat_tets(i,j) = vtx_old_to_new[old_idx];
+			}
+		}
+	}
+
+	return compute_embedding();
+
+/*
 	AlignedBox<double,3> aabb;
 	int nev = V.rows();
 	std::vector<int> pts_in_box;
@@ -247,7 +333,7 @@ bool EmbeddedMesh::generate(
 
 	LatticeData data;
 	data.V = &V;
-	subdivide_cube(&data,b0,pts_in_box,3);
+	subdivide_cube(&data,b0,pts_in_box,subdiv_levels);
 	merge_close_vertices(&data);
 
 	// We only want to keep tets that are either
@@ -314,14 +400,14 @@ bool EmbeddedMesh::generate(
 		int ntv0 = data.verts.size(); // original num verts
 		int ntv1 = refd_verts.size(); // reduced num verts
 		BLI_assert(ntv1 <= ntv0);
-		emb_mesh->rest_x.resize(ntv1,3);
+		lat_rest_x.resize(ntv1,3);
 		int vtx_count = 0;
 		for (int i=0; i<ntv0; ++i)
 		{
 			if (refd_verts.count(i)>0)
 			{
 				for(int j=0; j<3; ++j){
-					emb_mesh->rest_x(vtx_count,j) = data.verts[i][j];
+					lat_rest_x(vtx_count,j) = data.verts[i][j];
 				}
 				vtx_old_to_new[i] = vtx_count;
 				vtx_count++;
@@ -330,30 +416,25 @@ bool EmbeddedMesh::generate(
 
 		// Copy tets to matrix data and update vertices
 		int nt = data.tets.size();
-		emb_mesh->tets.resize(nt,4);
+		lat_tets.resize(nt,4);
 		for(int i=0; i<nt; ++i){
 			for(int j=0; j<4; ++j){
 				int old_idx = data.tets[i][j];
 				BLI_assert(vtx_old_to_new.count(old_idx)>0);
-				emb_mesh->tets(i,j) = vtx_old_to_new[old_idx];
+				lat_tets(i,j) = vtx_old_to_new[old_idx];
 			}
 		}
 	}
 
 	// Now compute the baryweighting for embedded vertices
-	return compute_embedding(emb_mesh);
-
+	return compute_embedding();
+*/
 } // end gen lattice
 
-
-
-
 void EmbeddedMesh::compute_masses(
-	EmbeddedMeshData *emb_mesh, // where embedding is stored
 	Eigen::VectorXd *masses_tets, // masses of the lattice verts
 	double density_kgm3)
 {
-	BLI_assert(emb_mesh != NULL);
 	BLI_assert(masses_tets != NULL);
 	BLI_assert(density_kgm3 > 0);
 
@@ -363,18 +444,18 @@ void EmbeddedMesh::compute_masses(
 	// Source: https://github.com/mattoverby/mclscene/blob/master/include/MCL/TetMesh.hpp
 	// Computes volume-weighted masses for each vertex
 	// density_kgm3 is the unit-volume density
-	int nx = emb_mesh->rest_x.rows();
+	int nx = lat_rest_x.rows();
 	masses_tets->resize(nx);
 	masses_tets->setZero();
-	int n_tets = emb_mesh->tets.rows();
+	int n_tets = lat_tets.rows();
 	for (int t=0; t<n_tets; ++t)
 	{
-		RowVector4i tet = emb_mesh->tets.row(t);
-		RowVector3d tet_v0 = emb_mesh->rest_x.row(tet[0]);
+		RowVector4i tet = lat_tets.row(t);
+		RowVector3d tet_v0 = lat_rest_x.row(tet[0]);
 		Matrix3d edges;
-		edges.col(0) = emb_mesh->rest_x.row(tet[1]) - tet_v0;
-		edges.col(1) = emb_mesh->rest_x.row(tet[2]) - tet_v0;
-		edges.col(2) = emb_mesh->rest_x.row(tet[3]) - tet_v0;
+		edges.col(0) = lat_rest_x.row(tet[1]) - tet_v0;
+		edges.col(1) = lat_rest_x.row(tet[2]) - tet_v0;
+		edges.col(2) = lat_rest_x.row(tet[3]) - tet_v0;
 		double vol = std::abs((edges).determinant()/6.f);
 		double tet_mass = density_kgm3 * vol;
 		masses_tets->operator[](tet[0]) += tet_mass / 4.f;
@@ -396,7 +477,7 @@ void EmbeddedMesh::compute_masses(
 
 typedef struct FindTetThreadData {
 	AABBTree<double,3> *tree;
-	EmbeddedMeshData *emb_mesh; // thread sets vtx_to_tet and barys
+	EmbeddedMesh *emb_mesh; // thread sets vtx_to_tet and barys
 } FindTetThreadData;
 
 static void parallel_point_in_tet(
@@ -406,40 +487,40 @@ static void parallel_point_in_tet(
 {
 	FindTetThreadData *td = (FindTetThreadData*)userdata;
 	Vector3d pt = td->emb_mesh->emb_rest_x.row(i);
-	PointInTetMeshTraverse<double> traverser(pt, &td->emb_mesh->rest_x, &td->emb_mesh->tets);
+	PointInTetMeshTraverse<double> traverser(
+			pt,
+			&td->emb_mesh->lat_rest_x,
+			&td->emb_mesh->lat_tets);
 	bool success = td->tree->traverse(traverser);
 	int tet_idx = traverser.output.prim;
 	if (success && tet_idx >= 0)
 	{
-		RowVector4i tet = td->emb_mesh->tets.row(tet_idx);
+		RowVector4i tet = td->emb_mesh->lat_tets.row(tet_idx);
 		Vector3d t[4] = {
-			td->emb_mesh->rest_x.row(tet[0]),
-			td->emb_mesh->rest_x.row(tet[1]),
-			td->emb_mesh->rest_x.row(tet[2]),
-			td->emb_mesh->rest_x.row(tet[3])
+			td->emb_mesh->lat_rest_x.row(tet[0]),
+			td->emb_mesh->lat_rest_x.row(tet[1]),
+			td->emb_mesh->lat_rest_x.row(tet[2]),
+			td->emb_mesh->lat_rest_x.row(tet[3])
 		};
 		td->emb_mesh->emb_vtx_to_tet[i] = tet_idx;
-		Vector4d b = barycoords::point_tet(pt,t[0],t[1],t[2],t[3]);
+		Vector4d b = geom::point_tet_barys(pt,t[0],t[1],t[2],t[3]);
 		td->emb_mesh->emb_barys.row(i) = b;
 	}
 } // end parallel lin solve
 
-bool EmbeddedMesh::compute_embedding(
-	EmbeddedMeshData *emb_mesh)
+bool EmbeddedMesh::compute_embedding()
 {
-	BLI_assert(emb_mesh!=NULL);
-
-	int nv = emb_mesh->emb_rest_x.rows();
+	int nv = emb_rest_x.rows();
 	if (nv==0)
 	{
 		printf("**EmbeddedMesh::compute_embedding: No embedded vertices");
 		return false;
 	}
 
-	emb_mesh->emb_barys.resize(nv,4);
-	emb_mesh->emb_barys.setOnes();
-	emb_mesh->emb_vtx_to_tet.resize(nv);
-	int nt = emb_mesh->tets.rows();
+	emb_barys.resize(nv,4);
+	emb_barys.setOnes();
+	emb_vtx_to_tet.resize(nv);
+	int nt = lat_tets.rows();
 
 	// BVH tree for finding point-in-tet and computing
 	// barycoords for each embedded vertex
@@ -449,9 +530,9 @@ bool EmbeddedMesh::compute_embedding(
 	for (int i=0; i<nt; ++i)
 	{
 		tet_aabbs[i].setEmpty();
-		RowVector4i tet = emb_mesh->tets.row(i);
+		RowVector4i tet = lat_tets.row(i);
 		for (int j=0; j<4; ++j)
-			tet_aabbs[i].extend(emb_mesh->rest_x.row(tet[j]).transpose());
+			tet_aabbs[i].extend(lat_rest_x.row(tet[j]).transpose());
 
 		tet_aabbs[i].extend(tet_aabbs[i].min()-veta);
 		tet_aabbs[i].extend(tet_aabbs[i].max()+veta);
@@ -462,7 +543,7 @@ bool EmbeddedMesh::compute_embedding(
 
 	FindTetThreadData thread_data = {
 		.tree = &tree,
-		.emb_mesh = emb_mesh
+		.emb_mesh = this
 	};
 	TaskParallelSettings settings;
 	BLI_parallel_range_settings_defaults(&settings);
@@ -472,7 +553,7 @@ bool EmbeddedMesh::compute_embedding(
 	const double eps = 1e-8;
 	for (int i=0; i<nv; ++i)
 	{
-		RowVector4d b = emb_mesh->emb_barys.row(i);
+		RowVector4d b = emb_barys.row(i);
 		if (b.minCoeff() < -eps)
 		{
 			printf("**Lattice::generate Error: negative barycoords\n");
@@ -500,13 +581,12 @@ bool EmbeddedMesh::compute_embedding(
 } // end compute vtx to tet mapping
 
 Eigen::Vector3d EmbeddedMesh::get_mapped_vertex(
-	const EmbeddedMeshData *emb_mesh,
 	const Eigen::MatrixXd *x_data,
 	int idx)
 {
-    int t_idx = emb_mesh->emb_vtx_to_tet[idx];
-    RowVector4i tet = emb_mesh->tets.row(t_idx);
-    RowVector4d b = emb_mesh->emb_barys.row(idx);
+    int t_idx = emb_vtx_to_tet[idx];
+    RowVector4i tet = lat_tets.row(t_idx);
+    RowVector4d b = emb_barys.row(idx);
     return Vector3d(
 		x_data->row(tet[0]) * b[0] +
 		x_data->row(tet[1]) * b[1] +

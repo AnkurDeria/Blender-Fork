@@ -28,6 +28,18 @@ set(INC_SYS
 	../../source/blender/makesdna # BLI_math_geom requires DNA
 )
 
+set(SDFGEN_SRC
+	src/sdfgen/array1.h
+	src/sdfgen/array2.h
+	src/sdfgen/array3.h
+	src/sdfgen/hashgrid.h
+	src/sdfgen/hashtable.h
+	src/sdfgen/makelevelset3.cpp
+	src/sdfgen/makelevelset3.h
+	src/sdfgen/util.h
+	src/sdfgen/vec.h
+)
+
 set(SRC
 	src/admmpd_bvh.h
 	src/admmpd_bvh.cpp
@@ -39,17 +51,20 @@ set(SRC
 	src/admmpd_embeddedmesh.cpp
 	src/admmpd_energy.h
 	src/admmpd_energy.cpp
+	src/admmpd_geom.h
+	src/admmpd_geom.cpp
 	src/admmpd_linsolve.h
 	src/admmpd_linsolve.cpp
-	src/admmpd_math.h
-	src/admmpd_math.cpp
 	src/admmpd_pin.h
 	src/admmpd_pin.cpp
+	src/admmpd_sdf.h
+	src/admmpd_sdf.cpp
 	src/admmpd_solver.h
 	src/admmpd_solver.cpp
 	src/admmpd_tetmesh.h
 	src/admmpd_tetmesh.cpp
 	src/admmpd_types.h
+	${SDFGEN_SRC}
 )
 
 set(LIB

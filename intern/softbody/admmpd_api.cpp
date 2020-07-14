@@ -43,7 +43,7 @@ struct ADMMPDInternalData {
   admmpd::Options *options;
   admmpd::SolverData *data;
   admmpd::TetMeshData *tetmesh; // init_mode=0
-  admmpd::EmbeddedMeshData *embmesh; // init_mode=1
+  admmpd::EmbeddedMesh *embmesh; // init_mode=1
   admmpd::Collision *collision;
   admmpd::Pin *pin;
   int in_totverts; // number of input verts
@@ -161,12 +161,12 @@ static int admmpd_init_with_lattice(
 
   iface->totverts = 0;
   bool trim_lattice = true;
-  bool success = admmpd::EmbeddedMesh().generate(in_V,in_F,iface->idata->embmesh,trim_lattice);
+  bool success = iface->idata->embmesh->generate(in_V,in_F,trim_lattice);
   if (success)
   {
-    admmpd::EmbeddedMesh().compute_masses(iface->idata->embmesh, m);
-    *T = iface->idata->embmesh->tets;
-    *V = iface->idata->embmesh->rest_x;
+    iface->idata->embmesh->compute_masses(m);
+    *T = iface->idata->embmesh->lat_tets;
+    *V = iface->idata->embmesh->lat_rest_x;
     iface->totverts = V->rows();
     return 1;
   }
@@ -193,7 +193,7 @@ int admmpd_init(ADMMPDInterfaceData *iface, ADMMPDInitData *in_mesh)
   iface->idata->data = new admmpd::SolverData();
   admmpd::SolverData *data = iface->idata->data;
   iface->idata->tetmesh = new admmpd::TetMeshData();
-  iface->idata->embmesh = new admmpd::EmbeddedMeshData();
+  iface->idata->embmesh = new admmpd::EmbeddedMesh();
   iface->idata->collision = NULL;
   iface->idata->pin = NULL;
 
@@ -335,8 +335,8 @@ void admmpd_copy_to_bodypoint_and_object(ADMMPDInterfaceData *iface, BodyPoint *
       for (int i=0; i<iface->mesh_totverts; ++i)
       {
         
-        Eigen::Vector3d xi = admmpd::EmbeddedMesh().get_mapped_vertex(
-          iface->idata->embmesh, &iface->idata->data->x, i);
+        Eigen::Vector3d xi = iface->idata->embmesh->get_mapped_vertex(
+          &iface->idata->data->x, i);
         vertexCos[i][0] = xi[0];
         vertexCos[i][1] = xi[1];
         vertexCos[i][2] = xi[2];

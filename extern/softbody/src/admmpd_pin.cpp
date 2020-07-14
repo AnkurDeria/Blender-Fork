@@ -53,7 +53,7 @@ void EmbeddedMeshPin::linearize(
 
 		int tet_idx = mesh->emb_vtx_to_tet[emb_idx];
 		RowVector4d bary = mesh->emb_barys.row(emb_idx);
-		RowVector4i tet = mesh->tets.row(tet_idx);
+		RowVector4i tet = mesh->lat_tets.row(tet_idx);
 
 		for (int i=0; i<3; ++i)
 		{

@@ -2,7 +2,7 @@
 // Distributed under the MIT License.
 
 #include "admmpd_tetmesh.h"
-#include "admmpd_math.h"
+#include "admmpd_geom.h"
 #include <unordered_map>
 #include <set>
 #include "BLI_assert.h"

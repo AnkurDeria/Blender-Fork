@@ -6,6 +6,7 @@
 
 #include "admmpd_bvh.h"
 #include "admmpd_types.h"
+#include "admmpd_embeddedmesh.h"
 #include <set>
 
 namespace admmpd {
@@ -31,12 +32,15 @@ public:
     } obsdata;
 
     struct Settings {
+        double collision_eps;
         double floor_z;
         bool test_floor;
         bool self_collision;
         Settings() :
-            floor_z(-std::numeric_limits<double>::max()),
-            test_floor(false),
+            collision_eps(1e-10),
+            floor_z(-1.5),
+//            floor_z(-std::numeric_limits<double>::max()),
+            test_floor(true),
             self_collision(false)
             {}
     } settings;
@@ -74,25 +78,24 @@ public:
     	std::vector<Eigen::Triplet<double> > *trips,
 		std::vector<double> *d) = 0;
 
-    // Given a point and a surface mesh,
-    // perform discrete collision and create
-    // a vertex-face collision pair if colliding.
-    // Also adds collision pairs if below floor.
-    static void detect_discrete_vf(
-        const Eigen::Vector3d &pt,
+    // Given a point and a mesh, perform
+    // discrete collision detection.
+    std::pair<bool,VFCollisionPair>
+    detect_point_against_mesh(
         int pt_idx,
         bool pt_is_obs,
-        const AABBTree<double,3> *mesh_tree,
+        const Eigen::Vector3d &pt_t0,
+        const Eigen::Vector3d &pt_t1,
+        bool mesh_is_obs,
         const Eigen::MatrixXd *mesh_x,
         const Eigen::MatrixXi *mesh_tris,
-        bool mesh_is_obs,
-        std::vector<VFCollisionPair> *pairs);
+        const AABBTree<double,3> *mesh_tree) const;
 };
 
 // Collision detection against multiple meshes
 class EmbeddedMeshCollision : public Collision {
 public:
-    EmbeddedMeshCollision(const EmbeddedMeshData *mesh_) : mesh(mesh_){}
+    EmbeddedMeshCollision(const EmbeddedMesh *mesh_) : mesh(mesh_){}
 
     // Performs collision detection and stores pairs
     int detect(
@@ -111,18 +114,18 @@ public:
 
 protected:
     // A ptr to the embedded mesh data
-    const EmbeddedMeshData *mesh;
+    const EmbeddedMesh *mesh;
 
     // Pairs are compute on detect
-    std::vector<VFCollisionPair> vf_pairs;
+    std::vector<Eigen::Vector2i> vf_pairs; // index into per_vertex_pairs
+    std::vector<std::vector<VFCollisionPair> > per_vertex_pairs;
 
     // Updates the tetmesh BVH for self collisions.
     // Called by detect()
     // TODO
     void update_bvh(
         const Eigen::MatrixXd *x0,
-        const Eigen::MatrixXd *x1)
-    { (void)(x0); (void)(x1); }
+        const Eigen::MatrixXd *x1);
 };
 
 /*
