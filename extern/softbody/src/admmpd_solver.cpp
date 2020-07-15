@@ -19,11 +19,6 @@
 namespace admmpd {
 using namespace Eigen;
 
-struct ThreadData {
-	const Options *options;
-	SolverData *data;
-};
-
 bool Solver::init(
     const Eigen::MatrixXd &V,
 	const Eigen::MatrixXi &T,
@@ -70,15 +65,15 @@ int Solver::solve(
 	// the variables are sized correctly.
 	init_solve(options,data,collision,pin);
 
-	// Perform collision detection and linearization
-	linearize_collision_constraints(options,data,collision);
-
 	// Begin solver loop
 	int iters = 0;
 	for (; iters < options->max_admm_iters; ++iters)
 	{
 		// Update ADMM z/u
 		solve_local_step(options,data);
+
+		// Collision detection and linearization
+		update_collisions(options,data,collision);
 
 		// Solve Ax=b s.t. Cx=d
 		ConjugateGradients().solve(options,data,collision);
@@ -149,6 +144,11 @@ void Solver::init_solve(
 		}
 	}
 
+	if (collision)
+	{
+		collision->init_bvh(&data->x_start, &data->x);
+	}
+
 	// ADMM variables
 	data->Dx.noalias() = data->D * data->x;
 	data->z = data->Dx;
@@ -156,41 +156,49 @@ void Solver::init_solve(
 
 } // end init solve
 
-static void parallel_zu_update(
-	void *__restrict userdata,
-	const int i,
-	const TaskParallelTLS *__restrict UNUSED(tls))
-{
-	ThreadData *td = (ThreadData*)userdata;
-	Lame lame;
-	lame.set_from_youngs_poisson(td->options->youngs,td->options->poisson);
-	EnergyTerm().update(
-		td->data->indices[i][0],
-		lame,
-		td->data->rest_volumes[i],
-		td->data->weights[i],
-		&td->data->x,
-		&td->data->Dx,
-		&td->data->z,
-		&td->data->u );
-} // end parallel zu update
-
 void Solver::solve_local_step(
 	const Options *options,
 	SolverData *data)
 {
 	BLI_assert(data != NULL);
 	BLI_assert(options != NULL);
+
+	struct LocalStepThreadData {
+		const Options *options;
+		SolverData *data;
+	};
+
+	auto parallel_zu_update = [](
+		void *__restrict userdata,
+		const int i,
+		const TaskParallelTLS *__restrict tls)->void
+	{
+		(void)(tls);
+		LocalStepThreadData *td = (LocalStepThreadData*)userdata;
+		Lame lame;
+		lame.set_from_youngs_poisson(td->options->youngs,td->options->poisson);
+		EnergyTerm().update(
+			td->data->indices[i][0],
+			lame,
+			td->data->rest_volumes[i],
+			td->data->weights[i],
+			&td->data->x,
+			&td->data->Dx,
+			&td->data->z,
+			&td->data->u );
+	}; // end parallel zu update
+
 	data->Dx.noalias() = data->D * data->x;
 	int ne = data->indices.size();
 	BLI_assert(ne > 0);
-  	ThreadData thread_data = {.options=options, .data = data};
+  	LocalStepThreadData thread_data = {.options=options, .data = data};
 	TaskParallelSettings settings;
 	BLI_parallel_range_settings_defaults(&settings);
 	BLI_task_parallel_range(0, ne, &thread_data, parallel_zu_update, &settings);
+
 } // end local step
 
-void Solver::linearize_collision_constraints(
+void Solver::update_collisions(
 	const Options *options,
 	SolverData *data,
 	Collision *collision)

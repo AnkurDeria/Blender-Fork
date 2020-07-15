@@ -27,12 +27,14 @@ public:
     struct Settings {
         double collision_eps;
         double floor_z;
-        bool test_floor;
+        bool floor_collision;
+        bool obs_collision;
         bool self_collision;
         Settings() :
             collision_eps(1e-10),
             floor_z(-std::numeric_limits<double>::max()),
-            test_floor(true),
+            floor_collision(true),
+            obs_collision(true),
             self_collision(false)
             {}
     } settings;
@@ -46,6 +48,22 @@ public:
     } obsdata;
 
     virtual ~Collision() {}
+
+    // Resets the BVH
+    virtual void init_bvh(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1) = 0;
+
+    // Updates the BVH without sorting
+    virtual void update_bvh(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1) = 0;
+
+    // Updates the active set of constraints,
+    // but does not detect new ones.
+    virtual void update_constraints(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1) = 0;
 
     // Performs collision detection.
     // Returns the number of active constraints.
@@ -80,22 +98,16 @@ public:
 
     // Given a point and a mesh, perform
     // discrete collision detection.
-    std::pair<bool,VFCollisionPair>
+    virtual std::pair<bool,VFCollisionPair>
     detect_against_obs(
         const Eigen::Vector3d &pt,
         const ObstacleData *obs) const;
 
-    // Given a point and a mesh, perform
-    // discrete collision detection.
-//    std::pair<bool,VFCollisionPair>
-//    detect_point_against_mesh(
-//        int pt_idx,
-//        bool pt_is_obs,
-//        const Eigen::Vector3d &pt,
-//        bool mesh_is_obs,
-//        const EmbeddedMesh *emb_mesh,
-//        const Eigen::MatrixXd *mesh_tets_x,
-//        const AABBTree<double,3> *mesh_tets_tree) const;
+    virtual std::pair<bool,VFCollisionPair>
+    detect_against_self(
+        int pt_idx,
+        const Eigen::Vector3d &pt,
+        const Eigen::MatrixXd *x) const = 0;
 };
 
 // Collision detection against multiple meshes
@@ -118,68 +130,37 @@ public:
     	std::vector<Eigen::Triplet<double> > *trips,
 		std::vector<double> *d);
 
+    void init_bvh(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1);
+
+    // Updates the tetmesh BVH for self collisions.
+    void update_bvh(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1);
+
+    // Updates the active set of constraints,
+    // but does not detect new ones.
+    void update_constraints(
+        const Eigen::MatrixXd *x0,
+        const Eigen::MatrixXd *x1);
+
 protected:
     // A ptr to the embedded mesh data
     const EmbeddedMesh *mesh;
+    std::vector<Eigen::AlignedBox<double,3> > tet_boxes;
+    AABBTree<double,3> tet_tree;
 
     // Pairs are compute on detect
     std::vector<Eigen::Vector2i> vf_pairs; // index into per_vertex_pairs
     std::vector<std::vector<VFCollisionPair> > per_vertex_pairs;
 
-    // Updates the tetmesh BVH for self collisions.
-    // Called by detect()
-    // TODO
-    void update_bvh(
-        const Eigen::MatrixXd *x0,
-        const Eigen::MatrixXd *x1);
+    std::pair<bool,VFCollisionPair>
+    detect_against_self(
+        int pt_idx,
+        const Eigen::Vector3d &pt,
+        const Eigen::MatrixXd *x) const;
 };
-
-/*
-class TetMeshCollision : public Collision {
-public:
-    TetMeshCollision(const TetMeshData *mesh_) :
-        mesh(mesh_),
-        floor_z(-std::numeric_limits<double>::max())
-        {}
-
-    // Performs collision detection.
-    // Returns the number of active constraints.
-    int detect(
-        const Eigen::MatrixXd *x0,
-        const Eigen::MatrixXd *x1);
-
-    // Special case for floor since it's common.
-    void set_floor(double z)
-    {
-        floor_z = z;
-    }
-
-    // Linearize the constraints and return Jacobian tensor.
-    // Constraints are linearized about x for constraint
-    // K x = l
-    void jacobian(
-        const Eigen::MatrixXd *x,
-    	std::vector<Eigen::Triplet<double> > *trips_x,
-        std::vector<Eigen::Triplet<double> > *trips_y,
-    	std::vector<Eigen::Triplet<double> > *trips_z,
-		std::vector<double> *l) = 0;
-
-protected:
-    const TetMeshData *mesh;
-    double floor_z;
-
-    // Pairs are compute on detect
-    std::vector<VFCollisionPair> vf_pairs;
-
-    // Updates the tetmesh BVH for self collisions.
-    // Called by detect()
-    // TODO
-    void update_bvh(
-        const Eigen::MatrixXd *x0,
-        const Eigen::MatrixXd *x1)
-    { (void)(x0); (void)(x1); }
-};
-*/
 
 } // namespace admmpd
 

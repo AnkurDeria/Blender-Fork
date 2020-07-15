@@ -12,35 +12,35 @@ namespace admmpd {
 template <typename T, int DIM>
 void AABBTree<T,DIM>::clear()
 {
-    root = std::make_shared<Node>();
+    m_root = std::make_shared<Node>();
 }
 
 template <typename T, int DIM>
 void AABBTree<T,DIM>::init(const std::vector<AABB> &leaves)
 {
-    root = std::make_shared<Node>();
+    m_root = std::make_shared<Node>();
     int np = leaves.size();
     if (np==0)
         return;
     std::vector<int> queue(np);
     std::iota(queue.begin(), queue.end(), 0);
-    create_children(root.get(), queue, leaves);
+    create_children(m_root.get(), queue, leaves);
 }
 
 template <typename T, int DIM>
 void AABBTree<T,DIM>::update(const std::vector<AABB> &leaves)
 {
-    if (!root || (int)leaves.size()==0)
+    if (!m_root || (int)leaves.size()==0)
         return;
-    update_children(root.get(), leaves);
+    update_children(m_root.get(), leaves);
 }
 
 template <typename T, int DIM>
 bool AABBTree<T,DIM>::traverse(Traverser<T,DIM> &traverser) const
 {
-    if (!root)
+    if (!m_root)
         return false;
-    return traverse_children(root.get(), traverser);
+    return traverse_children(m_root.get(), traverser);
 }
 
 // If we are traversing with function pointers, we'll just
@@ -71,12 +71,12 @@ bool AABBTree<T,DIM>::traverse(
     std::function<void(const AABB&, bool&, const AABB&, bool&, bool&)> t,
     std::function<bool(const AABB&, int)> s) const
 {
-    if (!root)
+    if (!m_root)
         return false;
     TraverserFromFunctionPtrs<T,DIM> traverser;
     traverser.t = t;
     traverser.s = s;
-    return traverse_children(root.get(), traverser);
+    return traverse_children(m_root.get(), traverser);
 }
 
 template <typename T, int DIM>
@@ -264,7 +264,7 @@ typename Octree<T,DIM>::Node* Octree<T,DIM>::create_children(
     const std::vector<AABB> &boxes)
 {
     BLI_assert((int)queue.size()>0);
-    BLI_assert((int)prim_boxes.size()>0);
+    BLI_assert((int)boxes.size()>0);
     BLI_assert(F != nullptr);
     BLI_assert(V != nullptr);
     BLI_assert(F->cols()==3);

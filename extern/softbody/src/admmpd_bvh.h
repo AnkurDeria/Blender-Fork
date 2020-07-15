@@ -58,9 +58,13 @@ public:
 		}
 	};
 
+	// Return ptr to the root node
+	// Becomes invalidated after init()
+	std::shared_ptr<Node> root() { return m_root; }
+
 protected:
 
-	std::shared_ptr<Node> root;
+	std::shared_ptr<Node> m_root;
 
 	void create_children(
 		Node *node,

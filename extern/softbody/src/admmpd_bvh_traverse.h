@@ -6,7 +6,7 @@
 
 #include <Eigen/Geometry>
 #include <vector>
-#include <BLI_math_geom.h>
+#include "BLI_math_geom.h"
 
 namespace admmpd {
 
@@ -90,6 +90,7 @@ protected:
 	VecType point;
 	const MatrixXType *prim_verts;
 	const Eigen::MatrixXi *prim_inds;
+	std::vector<int> skip_inds;
 
 public:
 	struct Output {
@@ -100,10 +101,12 @@ public:
 	PointInTetMeshTraverse(
 		const VecType &point_,
 		const MatrixXType *prim_verts_,
-		const Eigen::MatrixXi *prim_inds_) :
+		const Eigen::MatrixXi *prim_inds_,
+		const std::vector<int> &skip_inds_=std::vector<int>()) :
 		point(point_),
 		prim_verts(prim_verts_),
-		prim_inds(prim_inds_)
+		prim_inds(prim_inds_),
+		skip_inds(skip_inds_)
 		{}
 
 	void traverse(
@@ -165,6 +168,7 @@ protected:
 	VecType point;
 	const MatrixXType *prim_verts; // triangle mesh verts
 	const Eigen::MatrixXi *prim_inds; // triangle mesh inds
+	std::vector<int> skip_inds;
 
 public:
 	struct Output {
@@ -181,10 +185,12 @@ public:
 	NearestTriangleTraverse(
 		const VecType &point_,
 		const MatrixXType *prim_verts_,
-		const Eigen::MatrixXi *prim_inds_) :
+		const Eigen::MatrixXi *prim_inds_,
+		const std::vector<int> &skip_inds_=std::vector<int>()) :
 		point(point_),
 		prim_verts(prim_verts_),
-		prim_inds(prim_inds_)
+		prim_inds(prim_inds_),
+		skip_inds(skip_inds_)
 		{}
 
 	void traverse(

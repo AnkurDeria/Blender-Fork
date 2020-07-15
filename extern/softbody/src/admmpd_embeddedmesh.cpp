@@ -175,11 +175,10 @@ bool EmbeddedMesh::generate(
 		face_boxes[i].extend(V.row(F(i,2)).transpose());
 	}
 
-	AABBTree<double,3> face_tree;
-	face_tree.init(face_boxes);
+	emb_rest_tree.init(face_boxes);
 
 	Octree<double,3>::Node *root = octree.root().get();
-	gather_octree_tets(root,&V,&F,&face_tree,data.verts,data.tets);
+	gather_octree_tets(root,&V,&F,&emb_rest_tree,data.verts,data.tets);
 	merge_close_vertices(&data);
 
 	int nv = data.verts.size();
@@ -198,6 +197,11 @@ bool EmbeddedMesh::generate(
 		}
 	}
 
+	// Now compute the baryweighting for embedded vertices
+	bool embed_success = compute_embedding();
+
+	if (!emb_rest_tree.root())
+		throw std::runtime_error("EmbeddedMesh::generate Error: Failed to create tree");
 	if (lat_rest_x.rows()==0)
 		throw std::runtime_error("EmbeddedMesh::generate Error: Failed to create verts");
 	if (lat_tets.rows()==0)
@@ -206,13 +210,12 @@ bool EmbeddedMesh::generate(
 		throw std::runtime_error("EmbeddedMesh::generate Error: Did not set faces");
 	if (emb_rest_x.rows()==0)
 		throw std::runtime_error("EmbeddedMesh::generate Error: Did not set verts");
-
-	// Now compute the baryweighting for embedded vertices
-	bool embed_success = compute_embedding();
+	if (!embed_success)
+		throw std::runtime_error("EmbeddedMesh::generate Error: Failed embedding");
 
 	// Export the mesh for funsies
-	std::ofstream of("v_lattice.txt"); of << lat_rest_x; of.close();
-	std::ofstream of2("t_lattice.txt"); of2 << lat_tets; of2.close();
+//	std::ofstream of("v_lattice.txt"); of << lat_rest_x; of.close();
+//	std::ofstream of2("t_lattice.txt"); of2 << lat_tets; of2.close();
 
 	return embed_success;
 
@@ -270,8 +273,9 @@ typedef struct FindTetThreadData {
 static void parallel_point_in_tet(
 	void *__restrict userdata,
 	const int i,
-	const TaskParallelTLS *__restrict UNUSED(tls))
+	const TaskParallelTLS *__restrict tls)
 {
+	(void)(tls);
 	FindTetThreadData *td = (FindTetThreadData*)userdata;
 	Vector3d pt = td->emb_mesh->emb_rest_x.row(i);
 	PointInTetMeshTraverse<double> traverser(

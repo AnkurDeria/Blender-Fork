@@ -140,8 +140,9 @@ void ConjugateGradients::solve_Ax_b(
 	auto parallel_lin_solve = [](
 		void *__restrict userdata,
 		const int i,
-		const TaskParallelTLS *__restrict UNUSED(tls))->void
+		const TaskParallelTLS *__restrict tls)->void
 	{
+		(void)(tls);
 		LinSolveThreadData *td = (LinSolveThreadData*)userdata;
 		int nx = td->ls_x->rows()/3;
 		VectorXd b(nx);
@@ -189,8 +190,9 @@ void GaussSeidel::solve(
 
 	// Inner iteration of Gauss-Seidel
 	auto parallel_gs_sweep = [](void *__restrict userdata, const int i_,
-		const TaskParallelTLS *__restrict UNUSED(tls)) -> void
+		const TaskParallelTLS *__restrict tls) -> void
 	{
+		(void)(tls);
 		GaussSeidelThreadData *td = (GaussSeidelThreadData*)userdata;
 		int idx = td->colors->at(td->color)[i_];
 		double omega = td->options->gs_omega;
@@ -421,8 +423,9 @@ void GaussSeidel::compute_colors(
 	// Graph color initialization
 	//
 	auto init_graph = [](void *__restrict userdata, const int i,
-		const TaskParallelTLS *__restrict UNUSED(tls)) -> void
+		const TaskParallelTLS *__restrict tls) -> void
 	{
+		(void)(tls);
 		GraphColorThreadData *td = (GraphColorThreadData*)userdata;
 		for( int j=0; j<td->init_palette_size; ++j ) // init colors
 			td->palette->at(i).insert(j); 
@@ -440,8 +443,9 @@ void GaussSeidel::compute_colors(
 
 		// Generate a random color
 		auto generate_color = [](void *__restrict userdata, const int i,
-			const TaskParallelTLS *__restrict UNUSED(tls)) -> void
+			const TaskParallelTLS *__restrict tls) -> void
 		{
+			(void)(tls);
 			GraphColorThreadData *td = (GraphColorThreadData*)userdata;
 			int idx = td->node_queue->at(i);
 			if (td->palette->at(idx).size()<2) // Feed the hungry
@@ -453,8 +457,9 @@ void GaussSeidel::compute_colors(
 
 		// Detect conflicts
 		auto detect_conflicts = [](void *__restrict userdata, const int i,
-			const TaskParallelTLS *__restrict UNUSED(tls)) -> void
+			const TaskParallelTLS *__restrict tls) -> void
 		{
+			(void)(tls);
 			GraphColorThreadData *td = (GraphColorThreadData*)userdata;
 			int idx = td->node_queue->at(i);
 			int curr_c = td->node_colors->at(idx);

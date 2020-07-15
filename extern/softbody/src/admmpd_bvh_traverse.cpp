@@ -45,6 +45,7 @@ void RayClosestHit<T>::traverse(
 		(eps > 0 ? left_aabb.exteriorDistance(o) < eps : false);
 	go_right = geom::ray_aabb<T>(o,d,right_aabb,t_min,output.t_max) ||
 		(eps > 0 ? right_aabb.exteriorDistance(o) < eps : false);
+	(void)(go_left_first);
 }
 
 template <typename T>
@@ -109,6 +110,15 @@ bool PointInTetMeshTraverse<T>::stop_traversing(
 		return false;
 
 	RowVector4i t = prim_inds->row(prim);
+	int n_skip = skip_inds.size();
+	for (int i=0; i<n_skip; ++i)
+	{
+		if (skip_inds[i]==t[0]) return false;
+		if (skip_inds[i]==t[1]) return false;
+		if (skip_inds[i]==t[2]) return false;
+		if (skip_inds[i]==t[3]) return false;
+	}
+
 	VecType v[4] = {
 		prim_verts->row(t[0]),
 		prim_verts->row(t[1]),
@@ -229,6 +239,15 @@ bool NearestTriangleTraverse<T>::stop_traversing(const AABB &aabb, int prim)
 		return false;
 
 	RowVector3i tri = prim_inds->row(prim);
+
+	int n_skip = skip_inds.size();
+	for (int i=0; i<n_skip; ++i)
+	{
+		if (skip_inds[i]==tri[0]) return false;
+		if (skip_inds[i]==tri[1]) return false;
+		if (skip_inds[i]==tri[2]) return false;
+	}
+
 	VecType v[3] = {
 		prim_verts->row(tri[0]),
 		prim_verts->row(tri[1]),
