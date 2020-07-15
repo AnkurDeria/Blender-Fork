@@ -20,7 +20,7 @@ VFCollisionPair::VFCollisionPair() :
     p_is_obs(0), // 0 or 1
     q_idx(-1), // face
     q_is_obs(0), // 0 or 1
-	pt_on_q(0,0,0)
+	q_bary(0,0,0)
 	{}
 
 void Collision::set_obstacles(
@@ -30,125 +30,86 @@ void Collision::set_obstacles(
 	const unsigned int *faces,
 	int nf)
 {
-	if (obsdata.V0.rows() != nv)
-		obsdata.V0.resize(nv,3);
+	if (nv==0 || nf==0)
+	{
+//		obsdata.mesh = admmpd::EmbeddedMesh();
+		return;
+	}
 
-	if (obsdata.V1.rows() != nv)
-		obsdata.V1.resize(nv,3);
-
+	if (obsdata.V.rows() != nv)
+		obsdata.V.resize(nv,3);
 	for (int i=0; i<nv; ++i)
 	{
 		for (int j=0; j<3; ++j)
-		{
-			obsdata.V0(i,j) = v0[i*3+j];
-			obsdata.V1(i,j) = v1[i*3+j];
-		}
+			obsdata.V(i,j) = v1[i*3+j];
 	}
 
+	if ((int)obsdata.leaves.size() != nf)
+		obsdata.leaves.resize(nf);
 	if (obsdata.F.rows() != nf)
-	{
 		obsdata.F.resize(nf,3);
-		obsdata.aabbs.resize(nf);
-	}
-
-	Vector3d v_eta = Vector3d::Ones()*settings.collision_eps;
 	for (int i=0; i<nf; ++i)
 	{
-		obsdata.aabbs[i].setEmpty();
+		obsdata.leaves[i].setEmpty();
 		for (int j=0; j<3; ++j)
 		{
-			int fj = faces[i*3+j];
-			obsdata.F(i,j) = fj;
-			obsdata.aabbs[i].extend(obsdata.V0.row(fj).transpose());
-			obsdata.aabbs[i].extend(obsdata.V1.row(fj).transpose());
+			obsdata.F(i,j) = faces[i*3+j];
+			Vector3d vi = obsdata.V.row(obsdata.F(i,j)).transpose();
+			obsdata.leaves[i].extend(vi);
 		}
-		obsdata.aabbs[i].extend(obsdata.aabbs[i].min()-v_eta);
-		obsdata.aabbs[i].extend(obsdata.aabbs[i].max()+v_eta);
 	}
 
-	obsdata.tree.init(obsdata.aabbs);
+	obsdata.tree.init(obsdata.leaves);
+/*
+  	if (!obsdata.mesh.generate(V,F,true,2))
+		return;
 
+	int nt = obsdata.mesh.lat_tets.rows();
+	if ((int)obsdata.tet_leaves.size() != nt)
+		obsdata.tet_leaves.resize(nt);
+
+	for (int i=0; i<nt; ++i)
+	{
+		AlignedBox<double,3> &box = obsdata.tet_leaves[i];
+		box.setEmpty();
+		RowVector4i t = obsdata.mesh.lat_tets.row(i);
+		box.extend(obsdata.mesh.lat_rest_x.row(t[0]).transpose());
+		box.extend(obsdata.mesh.lat_rest_x.row(t[1]).transpose());
+		box.extend(obsdata.mesh.lat_rest_x.row(t[2]).transpose());
+		box.extend(obsdata.mesh.lat_rest_x.row(t[3]).transpose());
+//		box.extend(box.min()-Vector3d::Ones()*settings.collision_eps);
+//		box.extend(box.max()+Vector3d::Ones()*settings.collision_eps);
+	}
+
+	obsdata.tet_tree.init(obsdata.tet_leaves);
+*/
 } // end add obstacle
 
 std::pair<bool,VFCollisionPair>
-Collision::detect_point_against_mesh(
-        int pt_idx,
-        bool pt_is_obs,
-        const Eigen::Vector3d &pt_t0,
-        const Eigen::Vector3d &pt_t1,
-        bool mesh_is_obs,
-        const Eigen::MatrixXd *mesh_x,
-        const Eigen::MatrixXi *mesh_tris,
-        const AABBTree<double,3> *mesh_tree) const
+Collision::detect_against_obs(
+        const Eigen::Vector3d &pt,
+        const ObstacleData *obs) const
 {
 	std::pair<bool,VFCollisionPair> ret = 
 		std::make_pair(false, VFCollisionPair());
 
-	// Any faces to detect against?
-	if (mesh_tris->rows()==0)
-		return ret;	
-
-/*
-	VFCollisionPair &pair = ret.second;
-	pair.p_idx = pt_idx;
-	pair.p_is_obs = false;
-	pair.q_idx = 0;
-	pair.q_is_obs = 1;
-	double max_z = mesh_x->col(2).maxCoeff();
-	pair.pt_on_q = Vector3d(pt_t1[0],pt_t1[1],max_z);
-*/
-	return ret;
-/*
-	// Use a ray that is pos at t0 to t1
-	// with t_max being the displacment. If not moving,
-	// set the "eps" variable used by traversal which
-	// does point-triangle distance, and considers it a hit
-	// if the distance is less than the eps.
-	Vector3d dx = (pt_t1-pt_t0);
-	double t_max = dx.norm();
-	double eps = -1; // used as point-triangle distance query
-	//if (t_max < settings.collision_eps)
-	if (false)
-	{
-		dx = Vector3d(0,0,1);
-		t_max = settings.collision_eps;
-		eps = settings.collision_eps;
-	}
-	dx.normalize();
-
-	// Traverse the BVH
-	RayClosestHit<double> ray_hit_mesh(
-		pt_t0, dx,
-		mesh_x, mesh_tris,
-		eps, 0, t_max);
-	mesh_tree->traverse(ray_hit_mesh);
-
-//	if (pt_idx==0)
-//	{
-//		std::cout << "\n\nV0 (z): " << pt_t0[2] << std::endl;
-//		std::cout << "dir: " << dx.transpose() << std::endl;
-//		std::cout << ray_hit_mesh.output.prim << std::endl;
-//		if(ray_hit_mesh.output.prim >= 0)
-//			throw std::runtime_error("YAY HIT");
-//	}
-
-	if (ray_hit_mesh.output.prim < 0)
+	if (!obs->has_obs())
 		return ret;
 
+	PointInTriangleMeshTraverse<double> pt_in_mesh(pt,&obs->V,&obs->F);
+	obs->tree.traverse(pt_in_mesh);
+	if (pt_in_mesh.output.num_hits()%2==0)
+		return ret;
+
+	NearestTriangleTraverse<double> nearest_tri(pt,&obs->V,&obs->F);
+	obs->tree.traverse(nearest_tri);
+
 	ret.first = true;
-	VFCollisionPair &pair = ret.second;
-	pair.p_idx = pt_idx;
-	pair.p_is_obs = pt_is_obs;
-	pair.q_idx = ray_hit_mesh.output.prim;
-	pair.q_is_obs = mesh_is_obs;
-	RowVector3i tris = mesh_tris->row(pair.q_idx);
-	pair.pt_on_q =
-		mesh_x->row(tris[0])*ray_hit_mesh.output.barys[0] +
-		mesh_x->row(tris[1])*ray_hit_mesh.output.barys[1] +
-		mesh_x->row(tris[2])*ray_hit_mesh.output.barys[2];
+	ret.second.q_idx = nearest_tri.output.prim;
+	ret.second.q_is_obs = true;
+	ret.second.q_pt = nearest_tri.output.pt_on_tri;
 	return ret;
-*/
-} // end detect_point_against_mesh
+}
 
 int EmbeddedMeshCollision::detect(
 	const Eigen::MatrixXd *x0,
@@ -160,34 +121,29 @@ int EmbeddedMeshCollision::detect(
 	// Do we even need to process collisions?
 	if (!this->settings.test_floor &&
 		!this->settings.self_collision &&
-		this->obsdata.F.rows()==0)
+		!obsdata.has_obs())
 		return 0;
 
-	// Updates the BVH of self-intersection mesh
+	// Updates the BVH of deforming mesh
 	update_bvh(x0,x1);
 
-	// We store the results of the collisions in a
-	// per-vertex buffer.
+	// We store the results of the collisions in a per-vertex buffer.
+	// This is a workaround so we can create them in threads.
 	int nev = mesh->emb_rest_x.rows();
 	if ((int)per_vertex_pairs.size() != nev)
 		per_vertex_pairs.resize(nev, std::vector<VFCollisionPair>());
-
-	// Set the floor z to inf if bool detect says to
-	double floor_z = this->settings.floor_z;
-	if (!this->settings.test_floor)
-		floor_z = -std::numeric_limits<double>::max();
 
 	//
 	// Thread data for detection
 	//
 	typedef struct DetectThreadData {
+		const Collision::Settings *settings;
 		const Collision *collision;
 		const TetMeshData *tetmesh;
 		const EmbeddedMesh *embmesh;
 		const Collision::ObstacleData *obsdata;
 		const Eigen::MatrixXd *x0;
 		const Eigen::MatrixXd *x1;
-		double floor_z;
 		std::vector<std::vector<VFCollisionPair> > *per_vertex_pairs;
 	} DetectThreadData;
 
@@ -210,11 +166,6 @@ int EmbeddedMeshCollision::detect(
 		int tet_idx = td->embmesh->emb_vtx_to_tet[vi];
 		RowVector4i tet = td->embmesh->lat_tets.row(tet_idx);
 		Vector4d bary = td->embmesh->emb_barys.row(vi);
-		Vector3d pt_t0 = 
-			bary[0] * td->x0->row(tet[0]) +
-			bary[1] * td->x0->row(tet[1]) +
-			bary[2] * td->x0->row(tet[2]) +
-			bary[3] * td->x0->row(tet[3]);
 		Vector3d pt_t1 = 
 			bary[0] * td->x1->row(tet[0]) +
 			bary[1] * td->x1->row(tet[1]) +
@@ -222,34 +173,41 @@ int EmbeddedMeshCollision::detect(
 			bary[3] * td->x1->row(tet[3]);
 
 		// Special case, check if we are below the floor
-		if (pt_t1[2] < td->floor_z)
+		if (td->settings->test_floor)
 		{
-			vi_pairs.emplace_back();
-			VFCollisionPair &pair = vi_pairs.back();
-			pair.p_idx = vi;
-			pair.p_is_obs = false;
-			pair.q_idx = -1;
-			pair.q_is_obs = 1;
-			pair.pt_on_q = Vector3d(pt_t1[0],pt_t1[1],td->floor_z);
+			if (pt_t1[2] < td->settings->floor_z)
+			{
+				vi_pairs.emplace_back();
+				VFCollisionPair &pair = vi_pairs.back();
+				pair.p_idx = vi;
+				pair.p_is_obs = false;
+				pair.q_idx = -1;
+				pair.q_is_obs = 1;
+				pair.q_bary.setZero();
+				pair.q_pt = Vector3d(pt_t1[0],pt_t1[1],td->settings->floor_z);
+			}
 		}
 
 		std::pair<bool,VFCollisionPair> pt_hit_obs =
-			td->collision->detect_point_against_mesh(vi, false, pt_t0, pt_t1,
-			true, &td->obsdata->V1, &td->obsdata->F, &td->obsdata->tree);
+			td->collision->detect_against_obs(pt_t1,td->obsdata);
 
 		if (pt_hit_obs.first)
+		{
+			pt_hit_obs.second.p_idx = vi;
+			pt_hit_obs.second.p_is_obs = false;
 			vi_pairs.emplace_back(pt_hit_obs.second);
+		}
 
 	}; // end detect for a single embedded vertex
 
 	DetectThreadData thread_data = {
+		.settings = &settings,
 		.collision = this,
 		.tetmesh = nullptr,
 		.embmesh = mesh,
 		.obsdata = &obsdata,
 		.x0 = x0,
 		.x1 = x1,
-		.floor_z = floor_z,
 		.per_vertex_pairs = &per_vertex_pairs
 	};
 
@@ -354,12 +312,12 @@ void EmbeddedMeshCollision::linearize(
 		VFCollisionPair &pair = per_vertex_pairs[pair_idx[0]][pair_idx[1]];
 		int emb_p_idx = pair.p_idx;
 
-		// Compute normal of triangle at x
+		//
+		// If we collided with an obstacle
+		//
 		if (pair.q_is_obs)
 		{
 			Vector3d q_n(0,0,0);
-			RowVector3i q_inds(-1,-1,-1);
-			std::vector<Vector3d> q_tris;
 
 			// Special case, floor
 			if (pair.q_idx == -1)
@@ -368,21 +326,23 @@ void EmbeddedMeshCollision::linearize(
 			}
 			else
 			{
-				q_inds = obsdata.F.row(pair.q_idx);
-				q_tris = {
-					obsdata.V1.row(q_inds[0]),
-					obsdata.V1.row(q_inds[1]),
-					obsdata.V1.row(q_inds[2])
+				RowVector3i q_inds = obsdata.F.row(pair.q_idx);
+				Vector3d q_tris[3] = {
+					obsdata.V.row(q_inds[0]),
+					obsdata.V.row(q_inds[1]),
+					obsdata.V.row(q_inds[2])
 				};
 				q_n = ((q_tris[1]-q_tris[0]).cross(q_tris[2]-q_tris[0]));
 				q_n.normalize();
 			}
 
+			// Get the four deforming verts that embed
+			// the surface vertices, and add constraints on those.
 			RowVector4d bary = mesh->emb_barys.row(emb_p_idx);
 			int tet_idx = mesh->emb_vtx_to_tet[emb_p_idx];
 			RowVector4i tet = mesh->lat_tets.row(tet_idx);
 			int c_idx = d->size();
-			d->emplace_back(q_n.dot(pair.pt_on_q));
+			d->emplace_back(q_n.dot(pair.q_pt));
 			for (int j=0; j<4; ++j)
 			{
 				trips->emplace_back(c_idx, tet[j]*3+0, bary[j]*q_n[0]);
@@ -390,19 +350,77 @@ void EmbeddedMeshCollision::linearize(
 				trips->emplace_back(c_idx, tet[j]*3+2, bary[j]*q_n[2]);
 			}
 			continue;
-
 		}
 
-		// TODO: obstacle point intersecting mesh
-		if (pair.p_is_obs)
-		{
-			continue;
-		}
-
-		// Self collisions
-	
 	} // end loop pairs
 
 } // end jacobian
 
 } // namespace admmpd
+
+/*
+std::pair<bool,VFCollisionPair>
+Collision::detect_point_against_mesh(
+        int pt_idx,
+        bool pt_is_obs,
+        const Eigen::Vector3d &pt,
+        bool mesh_is_obs,
+        const EmbeddedMesh *emb_mesh,
+        const Eigen::MatrixXd *mesh_tets_x,
+        const AABBTree<double,3> *mesh_tets_tree) const
+{
+	std::pair<bool,VFCollisionPair> ret = 
+		std::make_pair(false, VFCollisionPair());
+
+	if (mesh_tets_x->rows()==0)
+		return ret;
+
+	// Point in tet?
+	PointInTetMeshTraverse<double> pt_in_tet(pt,mesh_tets_x,&emb_mesh->lat_tets);
+	bool in_mesh = mesh_tets_tree->traverse(pt_in_tet);
+	if (!in_mesh)
+		return ret;
+
+	// Transform to rest shape
+	int tet_idx = pt_in_tet.output.prim;
+	RowVector4i tet = emb_mesh->lat_tets.row(tet_idx);
+	Vector4d barys = geom::point_tet_barys(pt,
+		mesh_tets_x->row(tet[0]), mesh_tets_x->row(tet[1]),
+		mesh_tets_x->row(tet[2]), mesh_tets_x->row(tet[3]));
+	Vector3d rest_pt =
+		barys[0]*emb_mesh->lat_rest_x.row(tet[0])+
+		barys[1]*emb_mesh->lat_rest_x.row(tet[1])+
+		barys[2]*emb_mesh->lat_rest_x.row(tet[2])+
+		barys[3]*emb_mesh->lat_rest_x.row(tet[3]);
+
+	// We are inside the lattice. Find nearest
+	// face and see if we are on the inside of the mesh.
+	NearestTriangleTraverse<double> nearest_tri(rest_pt,
+		&emb_mesh->emb_rest_x,&emb_mesh->emb_faces);
+	emb_mesh->emb_rest_tree.traverse(nearest_tri);
+
+	if (nearest_tri.output.prim < 0)
+		throw std::runtime_error("detect_point_against_mesh failed to project out");
+
+	RowVector3i f = emb_mesh->emb_faces.row(nearest_tri.output.prim);
+	Vector3d fv[3] = {
+		emb_mesh->emb_rest_x.row(f[0]),
+		emb_mesh->emb_rest_x.row(f[1]),
+		emb_mesh->emb_rest_x.row(f[2])
+	};
+	Vector3d n = (fv[1]-fv[0]).cross(fv[2]-fv[0]);
+	n.normalize();
+	if ((rest_pt-fv[0]).dot(n)>0)
+		return ret; // outside of surface
+
+	ret.first = true;
+	ret.second.p_idx = pt_idx;
+	ret.second.p_is_obs = pt_is_obs;
+	ret.second.q_idx = 
+	ret.second.q_is_obs = mesh_is_obs;
+	ret.second.q_bary = geom::point_triangle_barys<double>(
+		nearest_tri.output.pt_on_tri, fv[0], fv[1], fv[2]);
+
+	return ret;
+} // end detect_point_against_mesh
+*/

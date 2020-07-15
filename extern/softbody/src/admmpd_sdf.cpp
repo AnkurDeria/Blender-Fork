@@ -23,9 +23,12 @@ bool SDF<T>::generate(const MatrixXT *V_, const Eigen::MatrixXi *F_, T dx_frac)
     sdf_dx = -1;
 	sdf.clear();
     aabb.setEmpty();
+    V_map.clear();
+    F_map.clear();
 
     int nv = V.rows();
-    if (nv == 0)
+    int nf = F.rows();
+    if (nv==0 || nf==0)
     {
         return false;
     }
@@ -39,38 +42,51 @@ bool SDF<T>::generate(const MatrixXT *V_, const Eigen::MatrixXi *F_, T dx_frac)
 			vertList.back()[j]=(float)V(i,j);
     }
 
-    // Consider k=n^(1/3) rule, with grid
-    // length = k and n = number of primitives.
-    // Grid cells should be larger than the largest primitive.
-
-	VecType sizes = aabb.sizes();
-	T grid_dx = sizes.maxCoeff()*dx_frac;
-    sdf_dx = grid_dx * 0.5;
-    sdfgen::Vec3f min_box = sdfgen::Vec3f(aabb.min()[0], aabb.min()[1], aabb.min()[2]);
-    sdfgen::Vec3f max_box = sdfgen::Vec3f(aabb.max()[0], aabb.max()[1], aabb.max()[2]);
-    sdfgen::Vec3ui sdf_sizes = sdfgen::Vec3ui((max_box-min_box)/sdf_dx)+sdfgen::Vec3ui(1,1,1);
-
+    T max_edge_len = 0;
     std::vector<sdfgen::Vec3ui> faceList;
-	int nf = F.rows();
 	for (int i=0; i<nf; ++i)
 	{
 		faceList.emplace_back();
 		for(int j=0; j<3; ++j)
+        {
 			faceList.back()[j]=(unsigned int)F(i,j);
+            T edge_len = (V.row(F(i,j))-V.row(F(i,(j+1)%3))).norm();
+            if (edge_len > max_edge_len)
+                max_edge_len = edge_len;
+        }
 	}
+
+    aabb.extend(aabb.min()-VecType::Ones()*1e-4);
+    aabb.extend(aabb.max()+VecType::Ones()*1e-4);
+
+    VecType sizes = aabb.sizes();
+    T grid_dx = sizes.maxCoeff()*dx_frac;
+    if (dx_frac<0)
+    {
+        // k=n^(1/3) rule, with num grid cells=k
+        // and n=number of primitives.
+        T k = std::pow(T(F.rows()), T(1.0/3.0));
+        grid_dx = sizes.maxCoeff()/k;
+//        grid_dx = max_edge_len;
+    }
+
+    sdf_dx = grid_dx * 0.5;
+    sdfgen::Vec3f min_box = sdfgen::Vec3f(aabb.min()[0], aabb.min()[1], aabb.min()[2]);
+    sdfgen::Vec3f max_box = sdfgen::Vec3f(aabb.max()[0], aabb.max()[1], aabb.max()[2]);
+    sdfgen::Vec3ui sdf_sizes = sdfgen::Vec3ui((max_box-min_box)/sdf_dx)+sdfgen::Vec3ui(1,1,1);
 
     sdfgen::make_level_set3(
         faceList, vertList, min_box, sdf_dx,
         sdf_sizes[0], sdf_sizes[1], sdf_sizes[2],
         sdf);
 
-    update_mapping(V_,F_);
+    compute_mapping(V_,F_);
 
     return true;
 } // end generate SDF
 
 template<typename T>
-void SDF<T>::update_mapping(
+void SDF<T>::compute_mapping(
         const MatrixXT *V_,
         const Eigen::MatrixXi *F_)
 {
@@ -141,11 +157,129 @@ template<typename T>
 T SDF<T>::sample(const VecType &x) const
 {
     if (sdf_dx < 0)
-        return 0;
+        return 1;
 
-    Vector3i x_inds = index(x);
-    return sdf(x_inds[0],x_inds[1],x_inds[2]);
+    for (int i=0; i<3; ++i)
+    {
+        if (x[i]<aabb.min()[i])
+            return 1;
+        if (x[i]>aabb.max()[i])
+            return 1;
+    }
 
+    Vector3i ind = index(x);
+    T val = sdf(ind[0],ind[1],ind[2]);
+
+    // If our SDF is very coarse, we want to check if the cell actually contains a face,
+    // since the sampling will be poor. If it does, return 0 (on surface).
+    if (val > 0 && val < sdf_dx)
+    {
+        int idx = ind[0]+sdf.ni*(ind[1]+sdf.nj*ind[2]);
+        std::unordered_map<int,std::set<int> >::const_iterator it = F_map.find(idx);
+        if (it != F_map.end())
+        {
+            if (it->second.size()>0)
+                return 0;
+        }
+    }
+    return val;
+}
+
+template<typename T>
+T SDF<T>::sample(const VecType &bmin, const VecType &bmax) const
+{
+    Vector3i bmin_cell = index(bmin);
+    Vector3i bmax_cell = index(bmax);
+    T min_val = std::numeric_limits<T>::max();
+    Vector3i cell(0,0,0);
+    for (cell[0]=bmin_cell[0]; cell[0]<=bmax_cell[0]; ++cell[0])
+    {
+		for (cell[1]=bmin_cell[1]; cell[1]<=bmax_cell[1]; ++cell[1])
+        {
+            for (cell[2]=bmin_cell[2]; cell[2]<=bmax_cell[2]; ++cell[2])
+            {
+                T val = sdf(cell[0],cell[1],cell[2]);
+                if (val > 0 && val < sdf_dx)
+                {
+                    int idx = cell[0]+sdf.ni*(cell[1]+sdf.nj*cell[2]);
+                    std::unordered_map<int,std::set<int> >::const_iterator it = F_map.find(idx);
+                    if (it != F_map.end())
+                    {
+                        if (it->second.size()>0)
+                            val = 0;
+                    }
+                }
+                min_val = std::min(min_val, val);
+            }
+        }
+    }
+    return min_val;
+}
+
+template<typename T>
+bool SDF<T>::project_out(
+    const VecType &pt,
+    const MatrixXT *V,
+    const Eigen::MatrixXi *F,
+    int &face_idx,
+    VecType &proj_on_face) const
+{
+
+    auto is_surface = [&](const Vector3i &ind)->bool
+    {
+        std::vector<int> f_list;
+        faces(ind,f_list);
+        int nf = f_list.size();
+        if (nf>0)
+        {
+            // Project onto nearest face
+            T min_dist = std::numeric_limits<T>::max();
+            for (int i=0; i<nf; ++i)
+            {
+                RowVector3i f = F->row(f_list[i]);
+                VecType pt_on_face = geom::point_on_triangle<T>(
+                    pt, V->row(f[0]), V->row(f[1]), V->row(f[2]));
+                T dist = (pt_on_face-pt).norm();
+                if (dist < min_dist)
+                {
+                    min_dist = dist;
+                    face_idx = f_list[i];
+                    proj_on_face = pt_on_face;
+                }
+            }
+            return true;
+        }
+        return false;
+    };
+
+    std::function<bool(const Vector3i&)> walk;
+    walk = [&](const Vector3i &ind)->bool
+    {
+        // Are we done walking?
+        if (is_surface(ind))
+            return true;
+
+        // Get the sdf in each direction
+        Matrix<T,6,1> dirs;
+        dirs[0] = ind[0]<sdf.ni-2 ? sdf(ind[0]+1,ind[1],ind[2]) : 1;
+        dirs[1] = ind[0]>0 ? sdf(ind[0]-1,ind[1],ind[2]) : 1;
+        dirs[2] = ind[1]<sdf.nj-2 ? sdf(ind[0],ind[1]+1,ind[2]) : 1;
+        dirs[3] = ind[1]>0 ? sdf(ind[0],ind[1]-1,ind[2]) : 1;
+        dirs[4] = ind[2]<sdf.nk-2 ? sdf(ind[0],ind[1],ind[2]+1) : 1;
+        dirs[5] = ind[2]>0 ? sdf(ind[0],ind[1],ind[2]-1) : 1;
+        int max_dir = -1;
+        dirs.maxCoeff(&max_dir);
+        if (max_dir==0) return walk(ind+Vector3i(1,0,0));
+        if (max_dir==1) return walk(ind-Vector3i(1,0,0));
+        if (max_dir==2) return walk(ind+Vector3i(0,1,0));
+        if (max_dir==3) return walk(ind-Vector3i(0,1,0));
+        if (max_dir==4) return walk(ind+Vector3i(0,0,1));
+        if (max_dir==5) return walk(ind-Vector3i(0,0,1));
+        return false;
+    };
+
+    Vector3i idx = index(pt);
+    return walk(idx);
 }
 
 template<typename T>
@@ -168,6 +302,24 @@ void SDF<T>::faces(const Eigen::Vector3i &ind, std::vector<int> &f) const
     f.insert(f.end(), it->second.begin(), it->second.end());
 }
 
+template<typename T>
+void SDF<T>::faces(const VecType &bmin, const VecType &bmax, std::vector<int> &f) const
+{
+    Vector3i bmin_cell = index(bmin);
+    Vector3i bmax_cell = index(bmax);
+    Vector3i cell(0,0,0);
+	for (cell[0]=bmin_cell[0]; cell[0]<=bmax_cell[0]; ++cell[0])
+    {
+		for (cell[1]=bmin_cell[1]; cell[1]<=bmax_cell[1]; ++cell[1])
+        {
+            for (cell[2]=bmin_cell[2]; cell[2]<=bmax_cell[2]; ++cell[2])
+            {
+                faces(cell,f);
+            }
+        }
+    }
+}
+
 template <typename T>
 void SDF<T>::get_cells(
         const VecType &bmin, const VecType &bmax,
@@ -180,7 +332,7 @@ void SDF<T>::get_cells(
     {
 		for (cell[1]=bmin_cell[1]; cell[1]<=bmax_cell[1]; ++cell[1])
         {
-            for (cell[1]=bmin_cell[1]; cell[1]<=bmax_cell[1]; ++cell[1])
+            for (cell[2]=bmin_cell[2]; cell[2]<=bmax_cell[2]; ++cell[2])
             {
                 int idx = cell[0]+sdf.ni*(cell[1]+sdf.nj*cell[2]);
                 cells_inds.emplace_back(idx);

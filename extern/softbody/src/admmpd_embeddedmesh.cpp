@@ -5,11 +5,13 @@
 #include "admmpd_geom.h"
 #include "admmpd_bvh.h"
 #include "admmpd_bvh_traverse.h"
+
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
 #include <set>
 #include <numeric>
+
 #include "BLI_task.h" // threading
 #include "BLI_assert.h"
 
@@ -67,7 +69,9 @@ static void parallel_keep_tet(
 
 // Gen lattice with subdivision
 struct LatticeData {
+	//SDF<double> *emb_sdf;
 	const Eigen::MatrixXd *V;
+	const Eigen::MatrixXi *F;
 	std::vector<Vector3d> verts;
 	std::vector<Vector4i> tets;
 };
@@ -113,7 +117,7 @@ static inline void merge_close_vertices(LatticeData *data, double eps=1e-12)
 static inline void subdivide_cube(
 	LatticeData *data,
 	const std::vector<Vector3d> &cv,
-	const std::vector<int> &pts_in_box,
+	const std::vector<int> &faces,
 	int level)
 {
 	BLI_assert((int)cv.size()==8);
@@ -159,21 +163,24 @@ static inline void subdivide_cube(
 		return;
 	}
 
-	// Only subdivide if we contain vertices
-	// Otherwise just return.
+	// Only subdivide if the box contains the surface.
 	AlignedBox<double,3> aabb;
 	aabb.extend(cv[3]); aabb.extend(cv[5]);
 	aabb.extend(aabb.min()-Vector3d::Ones()*1e-8);
 	aabb.extend(aabb.max()+Vector3d::Ones()*1e-8);
-	std::vector<int> new_pts_in_box;
-	int nv = pts_in_box.size();
-	for (int i=0; i<nv; ++i)
+	std::vector<int> new_faces;
+	int nf = faces.size();
+	for (int i=0; i<nf; ++i)
 	{
-		int idx = pts_in_box[i];
-		if (aabb.contains(data->V->row(idx).transpose()))
-			new_pts_in_box.emplace_back(idx);
+		int f_idx = faces[i];
+		RowVector3i f = data->F->row(f_idx);
+		Vector3d v0 = data->V->row(f[0]);
+		Vector3d v1 = data->V->row(f[1]);
+		Vector3d v2 = data->V->row(f[2]);
+		if (geom::aabb_triangle_intersect(aabb.min(),aabb.max(),v0,v1,v2))
+			new_faces.emplace_back(f_idx);
 	}
-	if (new_pts_in_box.size()==0)
+	if (new_faces.size()==0)
 	{
 		add_tets_from_box();
 		return;
@@ -201,17 +208,16 @@ static inline void subdivide_cube(
 	Vector3d v56 = 0.5*(cv[5]+cv[6]);
 	Vector3d v67 = 0.5*(cv[6]+cv[7]);
 	Vector3d v47 = 0.5*(cv[4]+cv[7]);
-	subdivide_cube(data, { cv[0], v01, vbot, v03, v04, vfront, vcent, vleft }, new_pts_in_box, level-1);
-	subdivide_cube(data, { v01, cv[1], v12, vbot, vfront, v15, vright, vcent }, new_pts_in_box, level-1);
-	subdivide_cube(data, { vbot, v12, cv[2], v23, vcent, vright, v26, vback }, new_pts_in_box, level-1);
-	subdivide_cube(data, { v03, vbot, v23, cv[3], vleft, vcent, vback, v37 }, new_pts_in_box, level-1);
-	subdivide_cube(data, { v04, vfront, vcent, vleft, cv[4], v45, vtop, v47 }, new_pts_in_box, level-1);
-	subdivide_cube(data, { vfront, v15, vright, vcent, v45, cv[5], v56, vtop }, new_pts_in_box, level-1);
-	subdivide_cube(data, { vcent, vright, v26, vback, vtop, v56, cv[6], v67 }, new_pts_in_box, level-1);
-	subdivide_cube(data, { vleft, vcent, vback, v37, v47, vtop, v67, cv[7] }, new_pts_in_box, level-1);
+	subdivide_cube(data, { cv[0], v01, vbot, v03, v04, vfront, vcent, vleft }, new_faces, level-1);
+	subdivide_cube(data, { v01, cv[1], v12, vbot, vfront, v15, vright, vcent }, new_faces, level-1);
+	subdivide_cube(data, { vbot, v12, cv[2], v23, vcent, vright, v26, vback }, new_faces, level-1);
+	subdivide_cube(data, { v03, vbot, v23, cv[3], vleft, vcent, vback, v37 }, new_faces, level-1);
+	subdivide_cube(data, { v04, vfront, vcent, vleft, cv[4], v45, vtop, v47 }, new_faces, level-1);
+	subdivide_cube(data, { vfront, v15, vright, vcent, v45, cv[5], v56, vtop }, new_faces, level-1);
+	subdivide_cube(data, { vcent, vright, v26, vback, vtop, v56, cv[6], v67 }, new_faces, level-1);
+	subdivide_cube(data, { vleft, vcent, vback, v37, v47, vtop, v67, cv[7] }, new_faces, level-1);
+
 }
-
-
 
 bool EmbeddedMesh::generate(
 	const Eigen::MatrixXd &V, // embedded verts
@@ -221,99 +227,14 @@ bool EmbeddedMesh::generate(
 {
 	emb_faces = F;
 	emb_rest_x = V;
-	emb_sdf.generate(&V,&F);
-	AlignedBox<double,3> aabb = emb_sdf.box();
 
-	// Recursive subdivide of cells
-	LatticeData data;
-	data.V = &V;
-	int nev = V.rows();
-	std::vector<int> pts_in_box(nev);
-	std::iota(pts_in_box.begin(), pts_in_box.end(), 0);
-	Vector3d min = aabb.min();
-	Vector3d max = aabb.max();
-	std::vector<Vector3d> b0 = {
-		Vector3d(min[0], min[1], max[2]),
-		Vector3d(max[0], min[1], max[2]),
-		Vector3d(max[0], min[1], min[2]),
-		min,
-		Vector3d(min[0], max[1], max[2]),
-		max,
-		Vector3d(max[0], max[1], min[2]),
-		Vector3d(min[0], max[1], min[2])
-	};
-	subdivide_cube(&data,b0,pts_in_box,subdiv_levels);
-	merge_close_vertices(&data);
+	if (F.rows()==0 || V.rows()==0)
+		throw std::runtime_error("EmbeddedMesh::generate Error: Missing data");
 
-	// Loop over tets and remove as needed.
-	// Mark referenced vertices to compute a mapping.
-	int nt0 = data.tets.size();
-	std::vector<int> keep_tet(nt0,1);
-	std::set<int> refd_verts;
-	{
-		int tet_idx = 0;
-		for (std::vector<Vector4i>::iterator it = data.tets.begin();
-			it != data.tets.end(); ++tet_idx)
-		{
-			bool keep = keep_tet[tet_idx];
-			if (keep)
-			{
-				const Vector4i &t = *it;
-				refd_verts.emplace(t[0]);
-				refd_verts.emplace(t[1]);
-				refd_verts.emplace(t[2]);
-				refd_verts.emplace(t[3]);
-				++it;
-			}
-			else { it = data.tets.erase(it); }
-		}
-	}
-
-	// Copy data into matrices and remove unreferenced
-	{
-		// Computing a mapping of vertices from old to new
-		// Delete any unreferenced vertices
-		std::unordered_map<int,int> vtx_old_to_new;
-		int ntv0 = data.verts.size(); // original num verts
-		int ntv1 = refd_verts.size(); // reduced num verts
-		BLI_assert(ntv1 <= ntv0);
-		lat_rest_x.resize(ntv1,3);
-		int vtx_count = 0;
-		for (int i=0; i<ntv0; ++i)
-		{
-			if (refd_verts.count(i)>0)
-			{
-				for(int j=0; j<3; ++j){
-					lat_rest_x(vtx_count,j) = data.verts[i][j];
-				}
-				vtx_old_to_new[i] = vtx_count;
-				vtx_count++;
-			}
-		}
-
-		// Copy tets to matrix data and update vertices
-		int nt = data.tets.size();
-		lat_tets.resize(nt,4);
-		for(int i=0; i<nt; ++i){
-			for(int j=0; j<4; ++j){
-				int old_idx = data.tets[i][j];
-				BLI_assert(vtx_old_to_new.count(old_idx)>0);
-				lat_tets(i,j) = vtx_old_to_new[old_idx];
-			}
-		}
-	}
-
-	return compute_embedding();
-
-/*
 	AlignedBox<double,3> aabb;
 	int nev = V.rows();
-	std::vector<int> pts_in_box;
 	for (int i=0; i<nev; ++i)
-	{
 		aabb.extend(V.row(i).transpose());
-		pts_in_box.emplace_back(i);
-	}
 
 	// Create initial box
 	aabb.extend(aabb.min()-Vector3d::Ones()*1e-4);
@@ -331,9 +252,13 @@ bool EmbeddedMesh::generate(
 		Vector3d(min[0], max[1], min[2])
 	};
 
+	std::vector<int> faces_in_box(F.rows());
+	std::iota(faces_in_box.begin(), faces_in_box.end(), 0);
+
 	LatticeData data;
 	data.V = &V;
-	subdivide_cube(&data,b0,pts_in_box,subdiv_levels);
+	data.F = &F;
+	subdivide_cube(&data,b0,faces_in_box,subdiv_levels);
 	merge_close_vertices(&data);
 
 	// We only want to keep tets that are either
@@ -353,11 +278,9 @@ bool EmbeddedMesh::generate(
 
 		int nt0 = data.tets.size();
 		std::vector<int> keep_tet(nt0,1);
-
-		AABBTree<double,3> mesh_tree;
-		mesh_tree.init(face_aabb);
+		emb_rest_tree.init(face_aabb);
 		KeepTetThreadData thread_data = {
-			.tree = &mesh_tree,
+			.tree = &emb_rest_tree,
 			.pts = &V,
 			.faces = &F,
 			.tet_x = &data.verts,
@@ -427,8 +350,14 @@ bool EmbeddedMesh::generate(
 	}
 
 	// Now compute the baryweighting for embedded vertices
-	return compute_embedding();
-*/
+	bool embed_success = compute_embedding();
+
+	// Export the mesh for funsies
+	std::ofstream of("v_lattice.txt"); of << lat_rest_x; of.close();
+	std::ofstream of2("t_lattice.txt"); of2 << lat_tets; of2.close();
+
+	return embed_success;
+
 } // end gen lattice
 
 void EmbeddedMesh::compute_masses(
@@ -571,18 +500,12 @@ bool EmbeddedMesh::compute_embedding()
 		}
 	}
 
-
-// Export the mesh for funsies
-//std::ofstream of("v_lattice.txt"); of << emb_mesh->rest_x; of.close();
-//std::ofstream of2("t_lattice.txt"); of2 << emb_mesh->tets; of2.close();
-
 	return true;
 
 } // end compute vtx to tet mapping
 
 Eigen::Vector3d EmbeddedMesh::get_mapped_vertex(
-	const Eigen::MatrixXd *x_data,
-	int idx)
+	const Eigen::MatrixXd *x_data, int idx) const
 {
     int t_idx = emb_vtx_to_tet[idx];
     RowVector4i tet = lat_tets.row(t_idx);

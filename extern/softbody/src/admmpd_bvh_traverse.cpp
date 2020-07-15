@@ -139,6 +139,8 @@ PointInTriangleMeshTraverse<T>::PointInTriangleMeshTraverse(
 	prim_verts(prim_verts_),
 	prim_inds(prim_inds_)
 {
+	//dir = VecType::Random();
+
 	BLI_assert(prim_verts->rows()>=0);
 	BLI_assert(prim_inds->rows()>=0);
 	BLI_assert(prim_inds->cols()==3);
@@ -148,6 +150,7 @@ PointInTriangleMeshTraverse<T>::PointInTriangleMeshTraverse(
 		o[i] = (float)point[i];
 		d[i] = (float)dir[i];
 	}
+	isect_ray_tri_watertight_v3_precalc(&isect_precalc, d);
 }
 
 template <typename T>
@@ -156,31 +159,23 @@ void PointInTriangleMeshTraverse<T>::traverse(
 	const AABB &right_aabb, bool &go_right,
 	bool &go_left_first )
 {
-	float tmin = 0;
-	float tmax = std::numeric_limits<float>::max();
-	float l_bb_min[3] = { (float)left_aabb.min()[0], (float)left_aabb.min()[1], (float)left_aabb.min()[2] };
-	float l_bb_max[3] = { (float)left_aabb.max()[0], (float)left_aabb.max()[1], (float)left_aabb.max()[2] };
-	go_left = isect_ray_aabb_v3_simple(o,d,l_bb_min,l_bb_max,&tmin,&tmax);
-	tmin = 0;
-	tmax = std::numeric_limits<float>::max();
-	float r_bb_min[3] = { (float)right_aabb.min()[0], (float)right_aabb.min()[1], (float)right_aabb.min()[2] };
-	float r_bb_max[3] = { (float)right_aabb.max()[0], (float)right_aabb.max()[1], (float)right_aabb.max()[2] };
-	go_right = isect_ray_aabb_v3_simple(o,d,r_bb_min,r_bb_max,&tmin,&tmax);
+	const T t_min = 0;
+	const T t_max = std::numeric_limits<T>::max();
+	go_left = geom::ray_aabb<T>(point,dir,left_aabb,t_min,t_max);
+	go_right = geom::ray_aabb<T>(point,dir,right_aabb,t_min,t_max);
+	go_left_first = go_left;
 } // end point in mesh traverse
 
 template <typename T>
 bool PointInTriangleMeshTraverse<T>::stop_traversing(
 		const AABB &aabb, int prim )
 {
+	const T t_min = 0;
+	T t_max = std::numeric_limits<T>::max();
+
 	// Check if the tet box doesn't intersect the triangle box
-	{
-		float tmin = 0;
-		float tmax = std::numeric_limits<float>::max();
-		float bb_min[3] = { (float)aabb.min()[0], (float)aabb.min()[1], (float)aabb.min()[2] };
-		float bb_max[3] = { (float)aabb.max()[0], (float)aabb.max()[1], (float)aabb.max()[2] };
-		if (!isect_ray_aabb_v3_simple(o,d,bb_min,bb_max,&tmin,&tmax))
-			return false;
-	}
+	if (!geom::ray_aabb<T>(point,dir,aabb,t_min,t_max))
+		return false;
 
 	// Get the vertices of the face in float arrays
 	// to interface with Blender kernels.
@@ -201,8 +196,7 @@ bool PointInTriangleMeshTraverse<T>::stop_traversing(
 	// then record if it was a ray-hit.
 	float lambda = 0;
 	float uv[2] = {0,0};
-	bool hit = isect_ray_tri_watertight_v3_simple(
-		o, d, q0, q1, q2, &lambda, uv);
+	bool hit = isect_ray_tri_watertight_v3(o, &isect_precalc, q0, q1, q2, &lambda, uv);
 
 	if (hit)
 		output.hits.emplace_back(std::make_pair(prim,lambda));
@@ -235,26 +229,18 @@ bool NearestTriangleTraverse<T>::stop_traversing(const AABB &aabb, int prim)
 	if (b_dist > output.dist)
 		return false;
 
-	float p[3] = { (float)point[0], (float)point[1], (float)point[2] };
-	float r[3] = { p[0], p[1], p[2] };
 	RowVector3i tri = prim_inds->row(prim);
-	float t1[3], t2[3], t3[3];
-	for (int i=0; i<3; ++i)
-	{
-		t1[i] = (float)prim_verts->operator()(tri[0],i);
-		t2[i] = (float)prim_verts->operator()(tri[1],i);
-		t3[i] = (float)prim_verts->operator()(tri[2],i);
-	}
-
-	// I was hoping there would be kernels that are a bit faster
-	// to get point-triangle distance, but I guess this does what I need.
-	closest_on_tri_to_point_v3(r, p, t1, t2, t3);
-	VecType pt_on_tri((T)r[0], (T)r[1], (T)r[2]);
-	double d2 = (point-pt_on_tri).norm();
-	if (d2 < output.dist)
+	VecType v[3] = {
+		prim_verts->row(tri[0]),
+		prim_verts->row(tri[1]),
+		prim_verts->row(tri[2])
+	};
+	VecType pt_on_tri = geom::point_on_triangle<T>(point,v[0],v[1],v[2]);
+	double dist = (point-pt_on_tri).norm();
+	if (dist < output.dist)
 	{
 		output.prim = prim;
-		output.dist = d2;
+		output.dist = dist;
 		output.pt_on_tri = pt_on_tri;		
 	}
 

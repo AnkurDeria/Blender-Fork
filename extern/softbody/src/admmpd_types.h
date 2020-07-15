@@ -29,12 +29,12 @@ struct Options {
     Eigen::Vector3d grav;
     Options() :
         timestep_s(1.0/24.0),
-        max_admm_iters(50),
+        max_admm_iters(30),
         max_cg_iters(10),
         max_gs_iters(100),
         gs_omega(1),
-        mult_ck(1),
-        mult_pk(0.001),
+        mult_ck(3),
+        mult_pk(0.01),
         min_res(1e-8),
         youngs(1000000),
         poisson(0.399),

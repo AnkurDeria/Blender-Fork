@@ -5,7 +5,8 @@
 #define ADMMPD_EMBEDDEDMESH_H_
 
 #include "admmpd_types.h"
-#include "admmpd_sdf.h"
+#include "admmpd_bvh.h"
+//#include "admmpd_sdf.h"
 
 namespace admmpd {
 
@@ -15,7 +16,7 @@ public:
     Eigen::MatrixXi emb_faces; // embedded faces
     Eigen::VectorXi emb_vtx_to_tet; // what tet vtx is embedded in, p x 1
     Eigen::MatrixXd emb_barys; // barycoords of the embedding, p x 4
-    SDF<double> emb_sdf; // embedded SDF at rest
+    admmpd::AABBTree<double,3> emb_rest_tree; // tree of embedded verts at rest
     Eigen::MatrixXi lat_tets; // lattice elements, m x 4
     Eigen::MatrixXd lat_rest_x; // lattice verts at rest
 
@@ -27,9 +28,11 @@ public:
         int subdiv_levels=3); // number of subdivs (resolution)
 
     // Returns the vtx mapped from x/v and tets
+    // Idx is the embedded vertex, and x_data is the
+    // data it should be mapped to.
     Eigen::Vector3d get_mapped_vertex(
         const Eigen::MatrixXd *x_data,
-        int idx);
+        int idx) const;
 
     // Given an embedding, compute masses
     // for the lattice vertices

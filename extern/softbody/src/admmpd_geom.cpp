@@ -151,7 +151,7 @@ Eigen::Matrix<T,3,1> geom::point_on_triangle(
 
 // From Real-Time Collision Detection by Christer Ericson
 template<typename T>
-bool aabb_plane_intersect(
+bool geom::aabb_plane_intersect(
 		const Eigen::Matrix<T,3,1> &bmin,
 		const Eigen::Matrix<T,3,1> &bmax,
 		const Eigen::Matrix<T,3,1> &p, // pt on plane
@@ -172,14 +172,23 @@ bool aabb_plane_intersect(
 
 // From Real-Time Collision Detection by Christer Ericson
 template<typename T>
-bool aabb_triangle_intersect(
+bool geom::aabb_triangle_intersect(
     const Eigen::Matrix<T,3,1> &bmin,
     const Eigen::Matrix<T,3,1> &bmax,
     const Eigen::Matrix<T,3,1> &a,
     const Eigen::Matrix<T,3,1> &b,
     const Eigen::Matrix<T,3,1> &c)
 {
-throw std::runtime_error("admmpd::geom::aabb_triangle_intersect: verify correctness first");
+	Eigen::AlignedBox<T,3> box;
+	box.extend(bmin);
+	box.extend(bmax);
+	if (box.contains(a))
+		return true;
+	if (box.contains(b))
+		return true;
+	if (box.contains(c))
+		return true;
+
 	typedef Eigen::Matrix<T,3,1> VecType;
 	auto Max = [](T x, T y, T z){ return std::max(std::max(x,y),z); };
 	auto Min = [](T x, T y, T z){ return std::min(std::min(x,y),z); };
@@ -203,7 +212,7 @@ throw std::runtime_error("admmpd::geom::aabb_triangle_intersect: verify correctn
 		const VecType &u = box_normals[i];
 		for (int j=0; j<3; ++j)
 		{
-			const VecType &f = edge_vectors[i];
+			const VecType &f = edge_vectors[j];
 			aij = u.cross(f);
 			// Axis is separating axis
 			p0 = v0.dot(aij);
@@ -352,23 +361,23 @@ template Eigen::Matrix<float,3,1>
 	admmpd::geom::point_on_triangle<float>(
 	const Eigen::Vector3f&, const Eigen::Vector3f&,
 	const Eigen::Vector3f&, const Eigen::Vector3f&);
-template bool aabb_plane_intersect<double>(
+template bool geom::aabb_plane_intersect<double>(
 	const Eigen::Matrix<double,3,1>&,
 	const Eigen::Matrix<double,3,1>&,
 	const Eigen::Matrix<double,3,1>&,
 	const Eigen::Matrix<double,3,1>&);
-template bool aabb_plane_intersect<float>(
+template bool geom::aabb_plane_intersect<float>(
 	const Eigen::Matrix<float,3,1>&,
 	const Eigen::Matrix<float,3,1>&,
 	const Eigen::Matrix<float,3,1>&,
 	const Eigen::Matrix<float,3,1>&);
-template bool aabb_triangle_intersect<double>(
+template bool geom::aabb_triangle_intersect<double>(
     const Eigen::Matrix<double,3,1>&,
     const Eigen::Matrix<double,3,1>&,
     const Eigen::Matrix<double,3,1>&,
     const Eigen::Matrix<double,3,1>&,
     const Eigen::Matrix<double,3,1>&);
-template bool aabb_triangle_intersect<float>(
+template bool geom::aabb_triangle_intersect<float>(
     const Eigen::Matrix<float,3,1>&,
     const Eigen::Matrix<float,3,1>&,
     const Eigen::Matrix<float,3,1>&,

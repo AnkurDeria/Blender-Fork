@@ -6,6 +6,7 @@
 
 #include <Eigen/Geometry>
 #include <vector>
+#include <BLI_math_geom.h>
 
 namespace admmpd {
 
@@ -129,10 +130,11 @@ protected:
 	const MatrixXType *prim_verts; // triangle mesh verts
 	const Eigen::MatrixXi *prim_inds; // triangle mesh inds
 	float o[3], d[3]; // pt and dir casted to float for Blender kernels
+	struct IsectRayPrecalc isect_precalc;
 
 public:
 	struct Output {
-		std::vector< std::pair<int,double> > hits; // [prim,t]
+		std::vector< std::pair<int,T> > hits; // [prim,t]
 		int num_hits() const { return hits.size(); }
 	} output;
 

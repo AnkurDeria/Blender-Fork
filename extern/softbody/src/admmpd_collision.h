@@ -16,20 +16,13 @@ struct VFCollisionPair {
     int p_is_obs; // 0 or 1
     int q_idx; // face, or -1 if floor
     int q_is_obs; // 0 or 1
-    Eigen::Vector3d pt_on_q; // point of collision on q
-    Eigen::Vector3d q_n; // face normal
+    Eigen::Vector3d q_pt; // pt of collision (if q obs)
+    Eigen::Vector3d q_bary; // barys of collision (if q !obs)
     VFCollisionPair();
 };
 
 class Collision {
 public:
-    // Obstacle data created in set_obstacles
-    struct ObstacleData {
-        Eigen::MatrixXd V0, V1;
-        Eigen::MatrixXi F;
-        std::vector<Eigen::AlignedBox<double,3> > aabbs;
-        AABBTree<double,3> tree;
-    } obsdata;
 
     struct Settings {
         double collision_eps;
@@ -38,12 +31,19 @@ public:
         bool self_collision;
         Settings() :
             collision_eps(1e-10),
-            floor_z(-1.5),
-//            floor_z(-std::numeric_limits<double>::max()),
+            floor_z(-std::numeric_limits<double>::max()),
             test_floor(true),
             self_collision(false)
             {}
     } settings;
+
+    struct ObstacleData {
+        bool has_obs() const { return F.rows()>0; }
+        Eigen::MatrixXd V;
+        Eigen::MatrixXi F;
+        AABBTree<double,3> tree;
+        std::vector<Eigen::AlignedBox<double,3> > leaves;
+    } obsdata;
 
     virtual ~Collision() {}
 
@@ -81,15 +81,21 @@ public:
     // Given a point and a mesh, perform
     // discrete collision detection.
     std::pair<bool,VFCollisionPair>
-    detect_point_against_mesh(
-        int pt_idx,
-        bool pt_is_obs,
-        const Eigen::Vector3d &pt_t0,
-        const Eigen::Vector3d &pt_t1,
-        bool mesh_is_obs,
-        const Eigen::MatrixXd *mesh_x,
-        const Eigen::MatrixXi *mesh_tris,
-        const AABBTree<double,3> *mesh_tree) const;
+    detect_against_obs(
+        const Eigen::Vector3d &pt,
+        const ObstacleData *obs) const;
+
+    // Given a point and a mesh, perform
+    // discrete collision detection.
+//    std::pair<bool,VFCollisionPair>
+//    detect_point_against_mesh(
+//        int pt_idx,
+//        bool pt_is_obs,
+//        const Eigen::Vector3d &pt,
+//        bool mesh_is_obs,
+//        const EmbeddedMesh *emb_mesh,
+//        const Eigen::MatrixXd *mesh_tets_x,
+//        const AABBTree<double,3> *mesh_tets_tree) const;
 };
 
 // Collision detection against multiple meshes
