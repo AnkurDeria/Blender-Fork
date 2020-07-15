@@ -1,6 +1,8 @@
 // Copyright Matt Overby 2020.
 // Distributed under the MIT License.
 
+#if 0
+
 #ifndef ADMMPD_SDF_H_
 #define ADMMPD_SDF_H_
 
@@ -84,3 +86,5 @@ public:
 } // namespace admmpd
 
 #endif // ADMMPD_SDF_H_
+
+#endif

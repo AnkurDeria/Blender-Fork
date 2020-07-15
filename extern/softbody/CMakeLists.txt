@@ -29,15 +29,15 @@ set(INC_SYS
 )
 
 set(SDFGEN_SRC
-	src/sdfgen/array1.h
-	src/sdfgen/array2.h
-	src/sdfgen/array3.h
-	src/sdfgen/hashgrid.h
-	src/sdfgen/hashtable.h
-	src/sdfgen/makelevelset3.cpp
-	src/sdfgen/makelevelset3.h
-	src/sdfgen/util.h
-	src/sdfgen/vec.h
+#	src/sdfgen/array1.h
+#	src/sdfgen/array2.h
+#	src/sdfgen/array3.h
+#	src/sdfgen/hashgrid.h
+#	src/sdfgen/hashtable.h
+#	src/sdfgen/makelevelset3.cpp
+#	src/sdfgen/makelevelset3.h
+#	src/sdfgen/util.h
+#	src/sdfgen/vec.h
 )
 
 set(SRC

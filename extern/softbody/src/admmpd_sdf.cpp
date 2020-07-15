@@ -1,6 +1,8 @@
 // Copyright Matt Overby 2020.
 // Distributed under the MIT License.
 
+#if 0
+
 #include "admmpd_sdf.h"
 #include "admmpd_geom.h"
 #include <vector>
@@ -345,3 +347,5 @@ template class admmpd::SDF<double>;
 template class admmpd::SDF<float>;
 
 } // namespace admmpd
+
+#endif

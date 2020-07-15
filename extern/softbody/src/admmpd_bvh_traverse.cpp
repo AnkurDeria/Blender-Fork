@@ -140,7 +140,6 @@ PointInTriangleMeshTraverse<T>::PointInTriangleMeshTraverse(
 	prim_inds(prim_inds_)
 {
 	//dir = VecType::Random();
-
 	BLI_assert(prim_verts->rows()>=0);
 	BLI_assert(prim_inds->rows()>=0);
 	BLI_assert(prim_inds->cols()==3);
