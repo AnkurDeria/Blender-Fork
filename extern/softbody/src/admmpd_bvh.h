@@ -42,8 +42,6 @@ public:
 		std::function<void(const AABB&, bool&, const AABB&, bool&, bool&)> t,
 		std::function<bool(const AABB&, int)> s) const;
 
-protected:
-
 	struct Node
 	{
 		AABB aabb;
@@ -59,6 +57,8 @@ protected:
 			if(right){ delete right; }
 		}
 	};
+
+protected:
 
 	std::shared_ptr<Node> root;
 
@@ -76,6 +76,58 @@ protected:
 		Traverser<T,DIM> &traverser ) const;
 
 }; // class AABBtree
+
+
+// Octree is actually a quadtree if DIM=2
+template<typename T, int DIM>
+class Octree
+{
+protected:
+	typedef Eigen::AlignedBox<T,DIM> AABB;
+	typedef Eigen::Matrix<T,DIM,1> VecType;
+	typedef Eigen::Matrix<T,Eigen::Dynamic,Eigen::Dynamic> MatrixXT;
+	static const int nchild = std::pow(2,DIM);
+public:
+
+	// Removes all BVH data
+	void clear();
+
+	// Creates the Octree up to depth with smart subdivision
+	// (only create children if it contains prims) and does not
+	// create a cell if it is outside the mesh.
+	// ** Assumes a closed mesh and only defined for 3D
+	void init(const MatrixXT *V, const Eigen::MatrixXi *F, int stopdepth);
+
+	// Returns bounding box of the root node
+	AABB bounds() const;
+
+	struct Node
+	{
+		VecType center;
+		T halfwidth;
+		Node *children[4*DIM];
+		std::vector<int> prims; // includes childen
+		bool is_leaf() const;
+		AABB bounds() const;
+		Node();
+		~Node();
+	};
+
+	// Return ptr to the root node
+	// Becomes invalidated after init()
+	std::shared_ptr<Node> root() { return m_root; }
+
+protected:
+
+	std::shared_ptr<Node> m_root;
+
+	Node* create_children(
+		const VecType &center, T halfwidth, int stopdepth,
+		const MatrixXT *V, const Eigen::MatrixXi *F,
+		const std::vector<int> &queue,
+		const std::vector<AABB> &boxes);
+
+}; // class Octree
 
 } // namespace admmpd
 

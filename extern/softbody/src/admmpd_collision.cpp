@@ -308,9 +308,10 @@ void EmbeddedMeshCollision::linearize(
 
 	for (int i=0; i<np; ++i)
 	{
-		Vector2i pair_idx = vf_pairs[i];
+		const Vector2i &pair_idx = vf_pairs[i];
 		VFCollisionPair &pair = per_vertex_pairs[pair_idx[0]][pair_idx[1]];
 		int emb_p_idx = pair.p_idx;
+		Vector3d p_pt = mesh->get_mapped_vertex(x,emb_p_idx);
 
 		//
 		// If we collided with an obstacle
@@ -334,7 +335,16 @@ void EmbeddedMeshCollision::linearize(
 				};
 				q_n = ((q_tris[1]-q_tris[0]).cross(q_tris[2]-q_tris[0]));
 				q_n.normalize();
+
+				// Update constraint linearization
+				pair.q_pt = geom::point_on_triangle<double>(p_pt,
+					q_tris[0], q_tris[1], q_tris[2]);
 			}
+
+			// Is the constraint active?
+			bool active = (p_pt-pair.q_pt).dot(q_n) <= 0.0;
+			if (!active)
+				continue;
 
 			// Get the four deforming verts that embed
 			// the surface vertices, and add constraints on those.

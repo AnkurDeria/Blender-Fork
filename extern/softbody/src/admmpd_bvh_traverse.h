@@ -136,6 +136,7 @@ public:
 	struct Output {
 		std::vector< std::pair<int,T> > hits; // [prim,t]
 		int num_hits() const { return hits.size(); }
+		bool is_inside() const { return hits.size()%2==1; }
 	} output;
 
 	PointInTriangleMeshTraverse(

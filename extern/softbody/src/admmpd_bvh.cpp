@@ -209,6 +209,133 @@ bool AABBTree<T,DIM>::traverse_children(
 
 } // end traverse children
 
+template<typename T, int DIM>
+void Octree<T,DIM>::clear()
+{
+    m_root = std::make_shared<Node>();
+}
+
+template<typename T, int DIM>
+typename Octree<T,DIM>::AABB Octree<T,DIM>::bounds() const
+{
+    if (m_root)
+        return m_root->bounds();
+    return AABB();
+}
+
+template<typename T, int DIM>
+void Octree<T,DIM>::init(const MatrixXT *V, const Eigen::MatrixXi *F, int stopdepth)
+{
+    BLI_assert(V != nullptr);
+    BLI_assert(F != nullptr);
+    BLI_assert(F->cols()==3);
+    m_root = std::make_shared<Node>();
+
+    if (DIM !=3 || F->cols()!=3)
+    {
+        return;
+    }
+
+    int nf = F->rows();
+    AABB global_box;
+    std::vector<AABB> boxes(nf);
+    std::vector<int> queue(nf);
+    for (int i=0; i<nf; ++i)
+    {
+        Eigen::RowVector3i f = F->row(i);
+		queue[i]=i;
+		boxes[i].extend(V->row(f[0]).transpose());
+		boxes[i].extend(V->row(f[1]).transpose());
+		boxes[i].extend(V->row(f[2]).transpose());
+		global_box.extend(boxes[i]);
+    }
+
+	T halfwidth = global_box.sizes().maxCoeff()*0.5;
+    m_root.reset(
+        create_children(global_box.center(),halfwidth,stopdepth,V,F,queue,boxes)
+    );
+}
+
+template<typename T, int DIM>
+typename Octree<T,DIM>::Node* Octree<T,DIM>::create_children(
+    const VecType &center, T halfwidth, int stopdepth,
+    const MatrixXT *V, const Eigen::MatrixXi *F,
+    const std::vector<int> &queue,
+    const std::vector<AABB> &boxes)
+{
+    BLI_assert((int)queue.size()>0);
+    BLI_assert((int)prim_boxes.size()>0);
+    BLI_assert(F != nullptr);
+    BLI_assert(V != nullptr);
+    BLI_assert(F->cols()==3);
+    BLI_assert(V->cols()==3);
+    if (stopdepth >= 0)
+    {
+        Node *node = new Node();
+        node->center = center;
+        node->halfwidth = halfwidth;
+        node->prims.clear();
+        AABB box = node->bounds();
+        // Set list of intersected prims
+        int nq = queue.size();
+        for (int i=0; i<nq; ++i)
+        {
+            int p_idx = queue[i];
+            if (box.intersects(boxes[p_idx]))
+                node->prims.emplace_back(p_idx);
+        }
+        // Create children only if prims intersect
+        int np = node->prims.size();
+        for (int i=0; i<nchild && np>0; ++i)
+        {
+
+            T step = node->halfwidth * 0.5;
+            VecType offset = VecType::Zero();
+            offset[0] = ((i & 1) ? step : -step);
+            offset[1] = ((i & 2) ? step : -step);
+            if (DIM==3) offset[2] = ((i & 4) ? step : -step);
+
+            node->children[i] = create_children(
+                node->center+offset, step, stopdepth-1,
+                V, F, node->prims, boxes);
+        }
+        return node;
+    }
+    return nullptr;
+}
+
+template<typename T, int DIM>
+Octree<T,DIM>::Node::Node() :
+    center(VecType::Zero()),
+    halfwidth(0)
+{
+	for (int i=0; i<nchild; ++i)
+		children[i] = nullptr;
+}
+
+template<typename T, int DIM>
+Octree<T,DIM>::Node::~Node()
+{
+    for (int i=0; i<nchild; ++i)
+	    if (children[i] != nullptr)
+			delete children[i];
+}
+
+template<typename T, int DIM>
+bool Octree<T,DIM>::Node::is_leaf() const
+{
+    return children[0] == nullptr;
+}
+
+template<typename T, int DIM>
+typename Octree<T,DIM>::AABB Octree<T,DIM>::Node::bounds() const
+{
+    AABB box;
+    box.extend(center + VecType::Ones()*halfwidth);
+    box.extend(center - VecType::Ones()*halfwidth);
+    return box;
+}
+
 // Compile types
 template class admmpd::AABBTree<double,2>;
 template class admmpd::AABBTree<double,3>;
@@ -218,5 +345,9 @@ template class admmpd::TraverserFromFunctionPtrs<double,2>;
 template class admmpd::TraverserFromFunctionPtrs<double,3>;
 template class admmpd::TraverserFromFunctionPtrs<float,2>;
 template class admmpd::TraverserFromFunctionPtrs<float,3>;
+template class admmpd::Octree<double,2>;
+template class admmpd::Octree<double,3>;
+template class admmpd::Octree<float,2>;
+template class admmpd::Octree<float,3>;
 
 } // namespace admmpd

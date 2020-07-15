@@ -34,7 +34,7 @@ public:
 
 protected:
 
-    void update_constraints(
+    void linearize_collision_constraints(
         const Options *options,
         SolverData *data,
         Collision *collision);

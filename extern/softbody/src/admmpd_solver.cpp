@@ -70,15 +70,15 @@ int Solver::solve(
 	// the variables are sized correctly.
 	init_solve(options,data,collision,pin);
 
+	// Perform collision detection and linearization
+	linearize_collision_constraints(options,data,collision);
+
 	// Begin solver loop
 	int iters = 0;
 	for (; iters < options->max_admm_iters; ++iters)
 	{
 		// Update ADMM z/u
 		solve_local_step(options,data);
-
-		// Perform collision detection and linearization
-		update_constraints(options,data,collision);
 
 		// Solve Ax=b s.t. Cx=d
 		ConjugateGradients().solve(options,data,collision);
@@ -190,7 +190,7 @@ void Solver::solve_local_step(
 	BLI_task_parallel_range(0, ne, &thread_data, parallel_zu_update, &settings);
 } // end local step
 
-void Solver::update_constraints(
+void Solver::linearize_collision_constraints(
 	const Options *options,
 	SolverData *data,
 	Collision *collision)

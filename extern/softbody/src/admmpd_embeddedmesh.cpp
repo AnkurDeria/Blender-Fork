@@ -18,55 +18,6 @@
 namespace admmpd {
 using namespace Eigen;
 
-typedef struct KeepTetThreadData {
-	const AABBTree<double,3> *tree; // of embedded faces
-	const MatrixXd *pts; // of embedded verts
-	const MatrixXi *faces; // embedded faces
-	const std::vector<Vector3d> *tet_x;
-	const std::vector<Vector4i> *tets;
-	std::vector<int> *keep_tet; // 0 or 1
-} KeepTetThreadData;
-
-static void parallel_keep_tet(
-	void *__restrict userdata,
-	const int i,
-	const TaskParallelTLS *__restrict UNUSED(tls))
-{
-	KeepTetThreadData *td = (KeepTetThreadData*)userdata;
-	RowVector4i tet = td->tets->at(i);
-	Vector3d tet_pts[4] = {
-		td->tet_x->at(tet[0]),
-		td->tet_x->at(tet[1]),
-		td->tet_x->at(tet[2]),
-		td->tet_x->at(tet[3])
-	};
-
-	// Returns true if the tet intersects the
-	// surface mesh. Even if it doesn't, we want to keep
-	// the tet if it's totally enclosed in the mesh.
-	TetIntersectsMeshTraverse<double> tet_hits_mesh(
-		tet_pts, td->pts, td->faces);
-	bool hit = td->tree->traverse(tet_hits_mesh);
-	if (!hit)
-	{
-		// We only need to check if one vertex of the
-		// tet is inside the mesh. If a subset of
-		// vertices are inside the mesh, then there would
-		// be tri/tri intersection.
-		PointInTriangleMeshTraverse<double> pt_in_mesh(
-			tet_pts[0], td->pts, td->faces);
-		td->tree->traverse(pt_in_mesh);
-		if (pt_in_mesh.output.num_hits() % 2 == 1)
-		{
-			hit = true;
-		}
-	}
-
-	if (hit) { td->keep_tet->at(i) = 1; }
-	else { td->keep_tet->at(i) = 0; }
-
-} // end parallel test if keep tet
-
 // Gen lattice with subdivision
 struct LatticeData {
 	//SDF<double> *emb_sdf;
@@ -114,110 +65,87 @@ static inline void merge_close_vertices(LatticeData *data, double eps=1e-12)
 	}
 }
 
-static inline void subdivide_cube(
-	LatticeData *data,
-	const std::vector<Vector3d> &cv,
-	const std::vector<int> &faces,
-	int level)
+static inline void add_tets_from_box(
+	const Vector3d &min,
+	const Vector3d &max,
+	std::vector<Vector3d> &verts,
+	std::vector<Vector4i> &tets)
 {
-	BLI_assert((int)cv.size()==8);
-	auto add_tets_from_box = [&]()
-	{
-		Vector3d max = cv[5];
-		Vector3d min = cv[3];
-		std::vector<Vector3d> v = {
-			// Top plane, clockwise looking down
-			max,
-			Vector3d(min[0], max[1], max[2]),
-			Vector3d(min[0], max[1], min[2]),
-			Vector3d(max[0], max[1], min[2]),
-			// Bottom plane, clockwise looking down
-			Vector3d(max[0], min[1], max[2]),
-			Vector3d(min[0], min[1], max[2]),
-			min,
-			Vector3d(max[0], min[1], min[2])
-		};
-		// Add vertices and get indices of the box
-		std::vector<int> b;
-		for(int i=0; i<8; ++i)
-		{
-			b.emplace_back(data->verts.size());
-			data->verts.emplace_back(v[i]);
-		}
-		// From the box, create five new tets
-		std::vector<Vector4i> new_tets = {
-			Vector4i( b[0], b[5], b[7], b[4] ),
-			Vector4i( b[5], b[7], b[2], b[0] ),
-			Vector4i( b[5], b[0], b[2], b[1] ),
-			Vector4i( b[7], b[2], b[0], b[3] ),
-			Vector4i( b[5], b[2], b[7], b[6] )
-		};
-		for(int i=0; i<5; ++i)
-			data->tets.emplace_back(new_tets[i]);
+	std::vector<Vector3d> v = {
+		// Top plane, clockwise looking down
+		max,
+		Vector3d(min[0], max[1], max[2]),
+		Vector3d(min[0], max[1], min[2]),
+		Vector3d(max[0], max[1], min[2]),
+		// Bottom plane, clockwise looking down
+		Vector3d(max[0], min[1], max[2]),
+		Vector3d(min[0], min[1], max[2]),
+		min,
+		Vector3d(max[0], min[1], min[2])
 	};
-
-	// Add this cube because we're at bottom
-	if (level==0)
+	// Add vertices and get indices of the box
+	std::vector<int> b;
+	for(int i=0; i<8; ++i)
 	{
-		add_tets_from_box();
+		b.emplace_back(verts.size());
+		verts.emplace_back(v[i]);
+	}
+	// From the box, create five new tets
+	std::vector<Vector4i> new_tets = {
+		Vector4i( b[0], b[5], b[7], b[4] ),
+		Vector4i( b[5], b[7], b[2], b[0] ),
+		Vector4i( b[5], b[0], b[2], b[1] ),
+		Vector4i( b[7], b[2], b[0], b[3] ),
+		Vector4i( b[5], b[2], b[7], b[6] )
+	};
+	for(int i=0; i<5; ++i)
+		tets.emplace_back(new_tets[i]);
+};
+
+static void gather_octree_tets(
+	Octree<double,3>::Node *node,
+	const MatrixXd *V, const MatrixXi *F,
+	AABBTree<double,3> *face_tree,
+	std::vector<Vector3d> &verts,
+	std::vector<Vector4i> &tets
+	)
+{
+	if (node == nullptr)
+	{
 		return;
 	}
 
-	// Only subdivide if the box contains the surface.
-	AlignedBox<double,3> aabb;
-	aabb.extend(cv[3]); aabb.extend(cv[5]);
-	aabb.extend(aabb.min()-Vector3d::Ones()*1e-8);
-	aabb.extend(aabb.max()+Vector3d::Ones()*1e-8);
-	std::vector<int> new_faces;
-	int nf = faces.size();
-	for (int i=0; i<nf; ++i)
+	bool is_leaf = node->is_leaf();
+	bool has_prims = (int)node->prims.size()>0;
+	if (is_leaf)
 	{
-		int f_idx = faces[i];
-		RowVector3i f = data->F->row(f_idx);
-		Vector3d v0 = data->V->row(f[0]);
-		Vector3d v1 = data->V->row(f[1]);
-		Vector3d v2 = data->V->row(f[2]);
-		if (geom::aabb_triangle_intersect(aabb.min(),aabb.max(),v0,v1,v2))
-			new_faces.emplace_back(f_idx);
-	}
-	if (new_faces.size()==0)
-	{
-		add_tets_from_box();
+		Vector3d bmin = node->center-Vector3d::Ones()*node->halfwidth;
+		Vector3d bmax = node->center+Vector3d::Ones()*node->halfwidth;
+
+		// If we have primitives in the cell,
+		// create tets. Otherwise, launch a ray
+		// to determine if we are inside or outside
+		// the mesh. If we're outside, don't create tets.
+		if (has_prims)
+		{
+			add_tets_from_box(bmin,bmax,verts,tets);
+		}
+		else
+		{
+			PointInTriangleMeshTraverse<double> pt_in_mesh(node->center,V,F);
+			face_tree->traverse(pt_in_mesh);
+			if (pt_in_mesh.output.is_inside())
+				add_tets_from_box(bmin,bmax,verts,tets);
+		}
 		return;
 	}
+	for (int i=0; i<8; ++i)
+	{
+		gather_octree_tets(node->children[i],V,F,face_tree,verts,tets);
+	}
 
-	// cv are the cube vertices, listed clockwise
-	// with the bottom plane first, then top plane.
-	// This is basically a dumb version of an octree.
-	Vector3d vfront = 0.25*(cv[0]+cv[1]+cv[5]+cv[4]); // front (+z)
-	Vector3d vback = 0.25*(cv[3]+cv[2]+cv[6]+cv[7]); // back (-z)
-	Vector3d vleft = 0.25*(cv[0]+cv[3]+cv[7]+cv[4]); // left (-x)
-	Vector3d vright = 0.25*(cv[1]+cv[2]+cv[6]+cv[5]); // right (+x)
-	Vector3d vtop = 0.25*(cv[4]+cv[5]+cv[6]+cv[7]); // top (+y)
-	Vector3d vbot = 0.25*(cv[0]+cv[1]+cv[2]+cv[3]); // bot (-y)
-	Vector3d vcent = 0.125*(cv[0]+cv[1]+cv[2]+cv[3]+cv[4]+cv[5]+cv[6]+cv[7]); // center
-	Vector3d v01 = 0.5*(cv[0]+cv[1]);
-	Vector3d v03 = 0.5*(cv[0]+cv[3]);
-	Vector3d v04 = 0.5*(cv[0]+cv[4]);
-	Vector3d v12 = 0.5*(cv[1]+cv[2]);
-	Vector3d v15 = 0.5*(cv[1]+cv[5]);
-	Vector3d v23 = 0.5*(cv[2]+cv[3]);
-	Vector3d v26 = 0.5*(cv[2]+cv[6]);
-	Vector3d v37 = 0.5*(cv[3]+cv[7]);
-	Vector3d v45 = 0.5*(cv[4]+cv[5]);
-	Vector3d v56 = 0.5*(cv[5]+cv[6]);
-	Vector3d v67 = 0.5*(cv[6]+cv[7]);
-	Vector3d v47 = 0.5*(cv[4]+cv[7]);
-	subdivide_cube(data, { cv[0], v01, vbot, v03, v04, vfront, vcent, vleft }, new_faces, level-1);
-	subdivide_cube(data, { v01, cv[1], v12, vbot, vfront, v15, vright, vcent }, new_faces, level-1);
-	subdivide_cube(data, { vbot, v12, cv[2], v23, vcent, vright, v26, vback }, new_faces, level-1);
-	subdivide_cube(data, { v03, vbot, v23, cv[3], vleft, vcent, vback, v37 }, new_faces, level-1);
-	subdivide_cube(data, { v04, vfront, vcent, vleft, cv[4], v45, vtop, v47 }, new_faces, level-1);
-	subdivide_cube(data, { vfront, v15, vright, vcent, v45, cv[5], v56, vtop }, new_faces, level-1);
-	subdivide_cube(data, { vcent, vright, v26, vback, vtop, v56, cv[6], v67 }, new_faces, level-1);
-	subdivide_cube(data, { vleft, vcent, vback, v37, v47, vtop, v67, cv[7] }, new_faces, level-1);
+} // end gather octree tets
 
-}
 
 bool EmbeddedMesh::generate(
 	const Eigen::MatrixXd &V, // embedded verts
@@ -231,123 +159,53 @@ bool EmbeddedMesh::generate(
 	if (F.rows()==0 || V.rows()==0)
 		throw std::runtime_error("EmbeddedMesh::generate Error: Missing data");
 
-	AlignedBox<double,3> aabb;
-	int nev = V.rows();
-	for (int i=0; i<nev; ++i)
-		aabb.extend(V.row(i).transpose());
-
-	// Create initial box
-	aabb.extend(aabb.min()-Vector3d::Ones()*1e-4);
-	aabb.extend(aabb.max()+Vector3d::Ones()*1e-4);
-	Vector3d min = aabb.min();
-	Vector3d max = aabb.max();
-	std::vector<Vector3d> b0 = {
-		Vector3d(min[0], min[1], max[2]),
-		Vector3d(max[0], min[1], max[2]),
-		Vector3d(max[0], min[1], min[2]),
-		min,
-		Vector3d(min[0], max[1], max[2]),
-		max,
-		Vector3d(max[0], max[1], min[2]),
-		Vector3d(min[0], max[1], min[2])
-	};
-
-	std::vector<int> faces_in_box(F.rows());
-	std::iota(faces_in_box.begin(), faces_in_box.end(), 0);
-
 	LatticeData data;
 	data.V = &V;
 	data.F = &F;
-	subdivide_cube(&data,b0,faces_in_box,subdiv_levels);
+
+	Octree<double,3> octree;
+	octree.init(&V,&F,subdiv_levels);
+
+	int nf = F.rows();
+	std::vector<AlignedBox<double,3> > face_boxes(nf);
+	for (int i=0; i<nf; ++i)
+	{
+		face_boxes[i].extend(V.row(F(i,0)).transpose());
+		face_boxes[i].extend(V.row(F(i,1)).transpose());
+		face_boxes[i].extend(V.row(F(i,2)).transpose());
+	}
+
+	AABBTree<double,3> face_tree;
+	face_tree.init(face_boxes);
+
+	Octree<double,3>::Node *root = octree.root().get();
+	gather_octree_tets(root,&V,&F,&face_tree,data.verts,data.tets);
 	merge_close_vertices(&data);
 
-	// We only want to keep tets that are either
-	// a) intersecting the surface mesh
-	// b) totally inside the surface mesh
-	std::set<int> refd_verts;
+	int nv = data.verts.size();
+	lat_rest_x.resize(nv,3);
+	for (int i=0; i<nv; ++i)
 	{
-		int nf = F.rows();
-		std::vector<AlignedBox<double,3> > face_aabb(nf);
-		for (int i=0; i<nf; ++i)
-		{
-			RowVector3i f = F.row(i);
-			face_aabb[i].setEmpty();
-			for (int j=0; j<3; ++j)
-				face_aabb[i].extend(V.row(f[j]).transpose());
-		}
-
-		int nt0 = data.tets.size();
-		std::vector<int> keep_tet(nt0,1);
-		emb_rest_tree.init(face_aabb);
-		KeepTetThreadData thread_data = {
-			.tree = &emb_rest_tree,
-			.pts = &V,
-			.faces = &F,
-			.tet_x = &data.verts,
-			.tets = &data.tets,
-			.keep_tet = &keep_tet
-		};
-		if (trim_lattice)
-		{
-			TaskParallelSettings settings;
-			BLI_parallel_range_settings_defaults(&settings);
-			BLI_task_parallel_range(0, nt0, &thread_data, parallel_keep_tet, &settings);
-		}
-
-		// Loop over tets and remove as needed.
-		// Mark referenced vertices to compute a mapping.
-		int tet_idx = 0;
-		for (std::vector<Vector4i>::iterator it = data.tets.begin();
-			it != data.tets.end(); ++tet_idx)
-		{
-			bool keep = keep_tet[tet_idx];
-			if (keep)
-			{
-				const Vector4i &t = *it;
-				refd_verts.emplace(t[0]);
-				refd_verts.emplace(t[1]);
-				refd_verts.emplace(t[2]);
-				refd_verts.emplace(t[3]);
-				++it;
-			}
-			else { it = data.tets.erase(it); }
-		}
-
-	} // end remove unnecessary tets
-
-	// Copy data into matrices and remove unreferenced
-	{
-		// Computing a mapping of vertices from old to new
-		// Delete any unreferenced vertices
-		std::unordered_map<int,int> vtx_old_to_new;
-		int ntv0 = data.verts.size(); // original num verts
-		int ntv1 = refd_verts.size(); // reduced num verts
-		BLI_assert(ntv1 <= ntv0);
-		lat_rest_x.resize(ntv1,3);
-		int vtx_count = 0;
-		for (int i=0; i<ntv0; ++i)
-		{
-			if (refd_verts.count(i)>0)
-			{
-				for(int j=0; j<3; ++j){
-					lat_rest_x(vtx_count,j) = data.verts[i][j];
-				}
-				vtx_old_to_new[i] = vtx_count;
-				vtx_count++;
-			}
-		}
-
-		// Copy tets to matrix data and update vertices
-		int nt = data.tets.size();
-		lat_tets.resize(nt,4);
-		for(int i=0; i<nt; ++i){
-			for(int j=0; j<4; ++j){
-				int old_idx = data.tets[i][j];
-				BLI_assert(vtx_old_to_new.count(old_idx)>0);
-				lat_tets(i,j) = vtx_old_to_new[old_idx];
-			}
+		for(int j=0; j<3; ++j){
+			lat_rest_x(i,j) = data.verts[i][j];
 		}
 	}
+	int nt = data.tets.size();
+	lat_tets.resize(nt,4);
+	for(int i=0; i<nt; ++i){
+		for(int j=0; j<4; ++j){
+			lat_tets(i,j) = data.tets[i][j];
+		}
+	}
+
+	if (lat_rest_x.rows()==0)
+		throw std::runtime_error("EmbeddedMesh::generate Error: Failed to create verts");
+	if (lat_tets.rows()==0)
+		throw std::runtime_error("EmbeddedMesh::generate Error: Failed to create tets");
+	if (emb_faces.rows()==0)
+		throw std::runtime_error("EmbeddedMesh::generate Error: Did not set faces");
+	if (emb_rest_x.rows()==0)
+		throw std::runtime_error("EmbeddedMesh::generate Error: Did not set verts");
 
 	// Now compute the baryweighting for embedded vertices
 	bool embed_success = compute_embedding();
