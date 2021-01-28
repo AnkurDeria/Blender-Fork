@@ -78,6 +78,8 @@ class AddPresetBase:
             return trans
 
         name = name.strip()
+        if not name < name.lower():
+            name = name.title()
         name = bpy.path.display_name_to_filepath(name)
         trans = maketrans_init()
         # Strip surrounding "_" as they are displayed as spaces.
@@ -251,7 +253,7 @@ class ExecutePreset(Operator):
         preset_class = getattr(bpy.types, self.menu_idname)
         preset_class.bl_label = bpy.path.display_name(basename(filepath))
 
-        ext = splitext(filepath)[1]
+        ext = splitext(filepath)[1].lower()
 
         if ext not in {".py", ".xml"}:
             self.report({'ERROR'}, "Unknown file type: %r" % ext)
